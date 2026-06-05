@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
@@ -32,7 +34,9 @@ pub trait Transport: Send + Sync {
                 return Ok(message);
             }
 
-            tokio::task::yield_now().await;
+            // Fallback for transports that only implement try_recv. Prefer overriding
+            // recv() to block on the inbox channel directly (see IrohTransport).
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 }

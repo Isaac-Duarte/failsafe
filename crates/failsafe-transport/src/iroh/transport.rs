@@ -158,6 +158,11 @@ impl Transport for IrohTransport {
             Err(mpsc::error::TryRecvError::Disconnected) => Err(TransportError::Disconnected),
         }
     }
+
+    async fn recv(&self) -> Result<FeatureMessage, TransportError> {
+        let mut inbox = self.inbox.lock().await;
+        inbox.recv().await.ok_or(TransportError::Disconnected)
+    }
 }
 
 impl Drop for IrohTransport {
