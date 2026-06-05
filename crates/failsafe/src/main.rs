@@ -17,6 +17,9 @@ use tracing::info;
 #[derive(Parser)]
 #[command(name = "failsafe", about = "Failsafe device sync daemon")]
 struct Cli {
+    /// Registration server base URL (overrides config; saved to config when set).
+    #[arg(long, global = true)]
+    server_url: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -133,28 +136,45 @@ async fn main() -> Result<(), DaemonError> {
         .init();
 
     let cli = Cli::parse();
+    let server_url = cli
+        .server_url
+        .or_else(|| std::env::var("FAILSAFE_SERVER_URL").ok());
 
     match cli.command {
-        Command::Run { config } => run(config).await,
+        Command::Run { config } => run(config, server_url).await,
         Command::Register {
             config,
             email,
             password,
-        } => authenticate(config, email, password, true).await,
+        } => authenticate(config, server_url, email, password, true).await,
         Command::Login {
             config,
             email,
             password,
-        } => authenticate(config, email, password, false).await,
-        Command::Pair { config, code, name } => pair(config, code, name).await,
-        Command::Status { config } => status(config),
-        Command::Devices { command } => devices(command).await,
+        } => authenticate(config, server_url, email, password, false).await,
+        Command::Pair { config, code, name } => pair(config, server_url, code, name).await,
+        Command::Status { config } => status(config, server_url),
+        Command::Devices { command } => devices(command, server_url).await,
     }
 }
 
-async fn run(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
+fn load_config(
+    path: &Path,
+    server_url: Option<String>,
+    create: bool,
+) -> Result<Config, DaemonError> {
+    let mut config = if create {
+        Config::load_or_create(path)?
+    } else {
+        Config::load(path)?
+    };
+    config.apply_server_url_override(path, server_url)?;
+    Ok(config)
+}
+
+async fn run(config_path: Option<PathBuf>, server_url: Option<String>) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
-    let config = Config::load_or_create(&path)?;
+    let config = load_config(&path, server_url, true)?;
 
     match config.transport {
         failsafe::config::TransportKind::Mock => {
@@ -179,12 +199,13 @@ async fn run(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
 
 async fn authenticate(
     config_path: Option<PathBuf>,
+    server_url: Option<String>,
     email: String,
     password: String,
     register: bool,
 ) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
-    let config = Config::load_or_create(&path)?;
+    let config = load_config(&path, server_url, true)?;
 
     let response = if register {
         ServerClient::register(&config.server_url, &email, &password).await?
@@ -221,19 +242,20 @@ async fn authenticate(
 
 async fn pair(
     config_path: Option<PathBuf>,
+    server_url: Option<String>,
     code: Option<String>,
     device_name: Option<String>,
 ) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
 
     match code {
-        Some(code) => pair_join(&path, &code, device_name).await,
-        None => pair_host(&path).await,
+        Some(code) => pair_join(&path, server_url, &code, device_name).await,
+        None => pair_host(&path, server_url).await,
     }
 }
 
-async fn pair_host(config_path: &Path) -> Result<(), DaemonError> {
-    let config = Config::load_or_create(config_path)?;
+async fn pair_host(config_path: &Path, server_url: Option<String>) -> Result<(), DaemonError> {
+    let config = load_config(config_path, server_url, true)?;
     let credentials = Credentials::load_or_error()?;
     let client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
     let response = client.create_pairing_code().await?;
@@ -248,10 +270,11 @@ async fn pair_host(config_path: &Path) -> Result<(), DaemonError> {
 
 async fn pair_join(
     config_path: &Path,
+    server_url: Option<String>,
     code: &str,
     device_name: Option<String>,
 ) -> Result<(), DaemonError> {
-    let mut config = Config::load_or_create(config_path)?;
+    let mut config = load_config(config_path, server_url, true)?;
     if let Some(name) = device_name {
         config.device_name = name;
     } else if config.device_name == "my-device" {
@@ -304,7 +327,7 @@ fn default_hostname() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
 }
 
-fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
+fn status(config_path: Option<PathBuf>, server_url: Option<String>) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
 
     if !path.exists() {
@@ -314,7 +337,7 @@ fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
         )));
     }
 
-    let config = Config::load(&path)?;
+    let config = load_config(&path, server_url, false)?;
 
     println!("config: {}", path.display());
     println!("device_id: {}", config.device_id);
@@ -340,24 +363,32 @@ fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
     Ok(())
 }
 
-async fn devices(command: DevicesCommand) -> Result<(), DaemonError> {
+async fn devices(
+    command: DevicesCommand,
+    server_url: Option<String>,
+) -> Result<(), DaemonError> {
     match command {
-        DevicesCommand::List { config } => devices_list(config).await,
+        DevicesCommand::List { config } => devices_list(config, server_url).await,
         DevicesCommand::Rename { config, id, name } => {
-            devices_rename(config, &id, &name).await
+            devices_rename(config, server_url, &id, &name).await
         }
-        DevicesCommand::Remove { config, id, yes } => devices_remove(config, &id, yes).await,
+        DevicesCommand::Remove { config, id, yes } => {
+            devices_remove(config, server_url, &id, yes).await
+        }
         DevicesCommand::Features {
             config,
             id,
             features,
-        } => devices_features(config, &id, &features).await,
+        } => devices_features(config, server_url, &id, &features).await,
     }
 }
 
-async fn server_client_from_config(config_path: Option<PathBuf>) -> Result<ServerClient, DaemonError> {
+async fn server_client_from_config(
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+) -> Result<ServerClient, DaemonError> {
     let path = config_path_or_default(config_path)?;
-    let config = Config::load_or_create(&path)?;
+    let config = load_config(&path, server_url, true)?;
     let credentials = Credentials::load_or_error()?;
     Ok(ServerClient::new(
         config.server_url.clone(),
@@ -386,8 +417,11 @@ fn parse_feature_list(features: &str) -> Result<Vec<FeatureId>, DaemonError> {
         .collect()
 }
 
-async fn devices_list(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path).await?;
+async fn devices_list(
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+) -> Result<(), DaemonError> {
+    let client = server_client_from_config(config_path, server_url).await?;
     let response = client.list_devices().await?;
 
     if response.devices.is_empty() {
@@ -418,10 +452,11 @@ async fn devices_list(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
 
 async fn devices_rename(
     config_path: Option<PathBuf>,
+    server_url: Option<String>,
     id: &str,
     name: &str,
 ) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path).await?;
+    let client = server_client_from_config(config_path, server_url).await?;
     let device_id = parse_device_id(id)?;
 
     if name.trim().is_empty() {
@@ -444,10 +479,11 @@ async fn devices_rename(
 
 async fn devices_remove(
     config_path: Option<PathBuf>,
+    server_url: Option<String>,
     id: &str,
     skip_confirm: bool,
 ) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path).await?;
+    let client = server_client_from_config(config_path, server_url).await?;
     let device_id = parse_device_id(id)?;
 
     if !skip_confirm && io::stdin().is_terminal() {
@@ -470,10 +506,11 @@ async fn devices_remove(
 
 async fn devices_features(
     config_path: Option<PathBuf>,
+    server_url: Option<String>,
     id: &str,
     features: &str,
 ) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path).await?;
+    let client = server_client_from_config(config_path, server_url).await?;
     let device_id = parse_device_id(id)?;
     let enabled_features = parse_feature_list(features)?;
 

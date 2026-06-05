@@ -85,6 +85,33 @@ impl Config {
     pub fn enabled_feature_set(&self) -> HashSet<FeatureId> {
         self.enabled_features.iter().copied().collect()
     }
+
+    pub fn normalize_server_url(url: &str) -> String {
+        url.trim().trim_end_matches('/').to_owned()
+    }
+
+    /// Apply a CLI/env override and persist when the value changes.
+    pub fn apply_server_url_override(
+        &mut self,
+        path: &Path,
+        override_url: Option<String>,
+    ) -> Result<(), DaemonError> {
+        let Some(url) = override_url else {
+            return Ok(());
+        };
+
+        let normalized = Self::normalize_server_url(&url);
+        if normalized.is_empty() {
+            return Err(DaemonError::Config("server_url cannot be empty".to_owned()));
+        }
+
+        if self.server_url != normalized {
+            self.server_url = normalized;
+            self.save(path)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

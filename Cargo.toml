@@ -27,7 +27,7 @@ failsafe-core = { path = "crates/failsafe-core" }
 failsafe = { path = "crates/failsafe" }
 failsafe-server = { path = "crates/failsafe-server" }
 failsafe-transport = { path = "crates/failsafe-transport" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
