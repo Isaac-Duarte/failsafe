@@ -1,5 +1,7 @@
 import { clearToken, getToken } from "@/lib/auth"
+import { emitUnauthorized } from "@/lib/auth-events"
 import type {
+  AccountResponse,
   ApiError,
   AuthLoginRequest,
   AuthRegisterRequest,
@@ -25,6 +27,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) {
       clearToken()
+      emitUnauthorized()
     }
     throw new ApiRequestError(body.error ?? `request failed (${response.status})`, response.status)
   }
@@ -81,6 +84,14 @@ export async function deleteDevice(deviceId: string): Promise<void> {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   })
   await parseResponse(response)
+}
+
+export async function getAccount(): Promise<AccountResponse> {
+  const token = getToken()
+  const response = await fetch("/api/v1/auth/me", {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+  return parseResponse(response)
 }
 
 export async function createPairingCode(): Promise<PairingCreateResponse> {

@@ -1,18 +1,11 @@
-import { useCallback, useEffect, useState } from "react"
-import { Check, Copy, Pencil, RefreshCw, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { RefreshCw } from "lucide-react"
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { DeviceList } from "@/components/devices/DeviceList"
+import { EditDeviceDialog } from "@/components/devices/EditDeviceDialog"
+import { PairingCard } from "@/components/devices/PairingCard"
+import { RemoveDeviceDialog } from "@/components/devices/RemoveDeviceDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -22,247 +15,26 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  createPairingCode,
-  deleteDevice,
-  listDevices,
-  updateDevice,
-} from "@/lib/api"
-import type { DeviceInfo, PairingCreateResponse } from "@/lib/types"
-
-const KNOWN_FEATURES = ["clipboard"] as const
-const INITIAL_SKELETON_ROWS = 3
-
-function DevicesTableHeader() {
-  return (
-    <TableHeader>
-      <TableRow>
-        <TableHead>Name</TableHead>
-        <TableHead>Status</TableHead>
-        <TableHead>Device ID</TableHead>
-        <TableHead>Features</TableHead>
-        <TableHead>Last seen</TableHead>
-        <TableHead className="text-right">Actions</TableHead>
-      </TableRow>
-    </TableHeader>
-  )
-}
-
-function DeviceTableSkeletonRow() {
-  return (
-    <TableRow>
-      <TableCell>
-        <Skeleton className="h-4 w-28" />
-      </TableCell>
-      <TableCell>
-        <Skeleton className="h-5 w-16 rounded-4xl" />
-      </TableCell>
-      <TableCell>
-        <Skeleton className="h-4 w-36" />
-      </TableCell>
-      <TableCell>
-        <div className="flex gap-1">
-          <Skeleton className="h-5 w-16 rounded-4xl" />
-        </div>
-      </TableCell>
-      <TableCell>
-        <Skeleton className="h-4 w-32" />
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          <Skeleton className="size-8 rounded-md" />
-          <Skeleton className="size-8 rounded-md" />
-        </div>
-      </TableCell>
-    </TableRow>
-  )
-}
-
-function formatExpiry(expiresAt: string): string {
-  const seconds = Math.max(
-    0,
-    Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
-  )
-  const minutes = Math.floor(seconds / 60)
-  const remainder = seconds % 60
-  return `${minutes}:${remainder.toString().padStart(2, "0")}`
-}
+import { useDevices } from "@/hooks/useDevices"
+import type { DeviceInfo } from "@/lib/types"
 
 export function DevicesPage() {
-  const [devices, setDevices] = useState<DeviceInfo[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [lastLoadedCount, setLastLoadedCount] = useState<number | null>(null)
-  const [pairing, setPairing] = useState<PairingCreateResponse | null>(null)
-  const [pairingLoading, setPairingLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [expiryLabel, setExpiryLabel] = useState("")
-
+  const { devices, initialLoading, refreshing, error, reload } = useDevices()
   const [editingDevice, setEditingDevice] = useState<DeviceInfo | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editFeatures, setEditFeatures] = useState<string[]>([])
-  const [editSaving, setEditSaving] = useState(false)
-
   const [removingDevice, setRemovingDevice] = useState<DeviceInfo | null>(null)
-  const [removeSaving, setRemoveSaving] = useState(false)
 
-  const loadDevices = useCallback(async () => {
-    setError(null)
-    setLoading(true)
-    try {
-      const response = await listDevices()
-      setDevices(response.devices)
-      setLastLoadedCount(response.devices.length)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load devices")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadDevices()
-  }, [loadDevices])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void loadDevices()
-    }, 30_000)
-    return () => window.clearInterval(timer)
-  }, [loadDevices])
-
-  useEffect(() => {
-    if (!pairing) {
-      return
-    }
-
-    const updateExpiry = () => {
-      if (new Date(pairing.expires_at) <= new Date()) {
-        setExpiryLabel("Expired — generate a new code")
-        return
-      }
-      setExpiryLabel(`Expires in ${formatExpiry(pairing.expires_at)}`)
-    }
-
-    updateExpiry()
-    const timer = window.setInterval(updateExpiry, 1000)
-    return () => window.clearInterval(timer)
-  }, [pairing])
-
-  function openEditDialog(device: DeviceInfo) {
-    setEditingDevice(device)
-    setEditName(device.name)
-    setEditFeatures([...device.enabled_features])
-  }
-
-  function toggleEditFeature(feature: string, checked: boolean) {
-    setEditFeatures((current) =>
-      checked
-        ? [...current, feature]
-        : current.filter((item) => item !== feature)
-    )
-  }
-
-  async function handleCreatePairingCode() {
-    setPairingLoading(true)
-    setError(null)
-    setCopied(false)
-
-    try {
-      const response = await createPairingCode()
-      setPairing(response)
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "failed to create pairing code"
-      )
-    } finally {
-      setPairingLoading(false)
-    }
-  }
-
-  async function handleCopyCode() {
-    if (!pairing) {
-      return
-    }
-
-    await navigator.clipboard.writeText(pairing.code)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 2000)
-  }
-
-  async function handleSaveEdit() {
-    if (!editingDevice) {
-      return
-    }
-
-    const name = editName.trim()
-    if (!name) {
-      setError("device name cannot be empty")
-      return
-    }
-
-    setEditSaving(true)
-    setError(null)
-
-    try {
-      await updateDevice(editingDevice.device_id, {
-        name,
-        enabled_features: editFeatures,
-      })
-      setEditingDevice(null)
-      await loadDevices()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to update device")
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  async function handleConfirmRemove() {
-    if (!removingDevice) {
-      return
-    }
-
-    setRemoveSaving(true)
-    setError(null)
-
-    try {
-      await deleteDevice(removingDevice.device_id)
-      setRemovingDevice(null)
-      await loadDevices()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to remove device")
-    } finally {
-      setRemoveSaving(false)
-    }
-  }
+  const deviceCountLabel =
+    !initialLoading && devices.length > 0
+      ? `${devices.length} device${devices.length === 1 ? "" : "s"} linked`
+      : null
 
   return (
     <div className="flex w-full flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
         <p className="text-sm text-muted-foreground">
-          Manage paired devices and generate codes for new machines.
+          {deviceCountLabel ??
+            "Manage paired devices and generate codes for new machines."}
         </p>
       </div>
 
@@ -272,35 +44,7 @@ export function DevicesPage() {
         </Alert>
       ) : null}
 
-      <Card className="shadow-lg ring-1 ring-border/50">
-        <CardHeader>
-          <CardTitle>Add a device</CardTitle>
-          <CardDescription>
-            Generate a pairing code, then run{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              failsafe pair --code &lt;CODE&gt;
-            </code>{" "}
-            on the new machine.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button onClick={handleCreatePairingCode} disabled={pairingLoading}>
-            {pairingLoading ? "Generating..." : "Get code"}
-          </Button>
-          {pairing ? (
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              <p className="font-mono text-3xl font-bold tracking-[0.35em] select-all">
-                {pairing.code}
-              </p>
-              <p className="text-sm text-muted-foreground">{expiryLabel}</p>
-              <Button variant="secondary" size="sm" onClick={handleCopyCode}>
-                {copied ? <Check /> : <Copy />}
-                {copied ? "Copied" : "Copy code"}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <PairingCard />
 
       <Card className="shadow-lg ring-1 ring-border/50">
         <CardHeader>
@@ -313,217 +57,36 @@ export function DevicesPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void loadDevices()}
-              disabled={loading}
+              onClick={() => void reload()}
+              disabled={refreshing}
             >
-              <RefreshCw className={loading ? "animate-spin" : ""} />
+              <RefreshCw className={refreshing ? "animate-spin" : ""} />
               Refresh
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <Table aria-busy="true" aria-label="Loading devices">
-              <DevicesTableHeader />
-              <TableBody>
-                {Array.from(
-                  {
-                    length:
-                      lastLoadedCount ?? INITIAL_SKELETON_ROWS,
-                  },
-                  (_, index) => (
-                    <DeviceTableSkeletonRow key={index} />
-                  )
-                )}
-              </TableBody>
-            </Table>
-          ) : devices.length === 0 ? (
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <p>No devices registered yet.</p>
-              <p>
-                Generate a pairing code above, then run the CLI on your new
-                machine to link it.
-              </p>
-            </div>
-          ) : (
-            <Table>
-              <DevicesTableHeader />
-              <TableBody>
-                {devices.map((device) => (
-                  <TableRow key={device.device_id}>
-                    <TableCell className="font-medium">{device.name}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={device.online ? "default" : "secondary"}
-                        className={
-                          device.online
-                            ? "gap-1.5 bg-emerald-600 text-white hover:bg-emerald-600/90"
-                            : "gap-1.5 text-muted-foreground"
-                        }
-                      >
-                        <span
-                          className={`size-1.5 rounded-full ${device.online ? "bg-white" : "bg-muted-foreground"}`}
-                        />
-                        {device.online ? "Online" : "Offline"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {device.device_id}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {device.enabled_features.length === 0 ? (
-                          <span className="text-sm text-muted-foreground">
-                            none
-                          </span>
-                        ) : (
-                          device.enabled_features.map((feature) => (
-                            <Badge key={feature} variant="secondary">
-                              {feature}
-                            </Badge>
-                          ))
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {device.last_seen
-                        ? new Date(device.last_seen).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${device.name}`}
-                          onClick={() => openEditDialog(device)}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Remove ${device.name}`}
-                          onClick={() => setRemovingDevice(device)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <DeviceList
+            devices={devices}
+            initialLoading={initialLoading}
+            skeletonRowCount={devices.length || 3}
+            onEdit={setEditingDevice}
+            onRemove={setRemovingDevice}
+          />
         </CardContent>
       </Card>
 
-      <Dialog
-        open={editingDevice !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingDevice(null)
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit device</DialogTitle>
-            <DialogDescription>
-              Update the display name and which features this device can sync
-              with others.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="device-name">Name</Label>
-              <Input
-                id="device-name"
-                value={editName}
-                onChange={(event) => setEditName(event.target.value)}
-                disabled={editSaving}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Features</Label>
-              <p className="text-xs text-muted-foreground">
-                Controls which features this device can sync with others.
-              </p>
-              <div className="space-y-2">
-                {KNOWN_FEATURES.map((feature) => (
-                  <label
-                    key={feature}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Checkbox
-                      checked={editFeatures.includes(feature)}
-                      onCheckedChange={(checked) =>
-                        toggleEditFeature(feature, checked === true)
-                      }
-                      disabled={editSaving}
-                    />
-                    {feature}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingDevice(null)}
-              disabled={editSaving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSaveEdit()} disabled={editSaving}>
-              {editSaving ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditDeviceDialog
+        device={editingDevice}
+        onClose={() => setEditingDevice(null)}
+        onSaved={() => void reload()}
+      />
 
-      <AlertDialog
-        open={removingDevice !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setRemovingDevice(null)
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove device?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {removingDevice ? (
-                <>
-                  <span className="font-medium">{removingDevice.name}</span>{" "}
-                  will stop syncing with your other devices. Run{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                    failsafe pair --code &lt;CODE&gt;
-                  </code>{" "}
-                  on that machine to add it again.
-                </>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removeSaving}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={removeSaving}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleConfirmRemove()
-              }}
-            >
-              {removeSaving ? "Removing..." : "Remove"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RemoveDeviceDialog
+        device={removingDevice}
+        onClose={() => setRemovingDevice(null)}
+        onRemoved={() => void reload()}
+      />
     </div>
   )
 }

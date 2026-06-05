@@ -56,6 +56,11 @@ pub struct AuthResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountResponse {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceUpsertRequest {
     pub device_id: DeviceId,
     pub name: String,

@@ -5,13 +5,18 @@ import { BrowserRouter } from "react-router-dom"
 import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
+import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="light">
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+    <ThemeProvider defaultTheme="system">
+      <TooltipProvider>
+        <BrowserRouter>
+          <App />
+          <Toaster richColors closeButton position="top-right" />
+        </BrowserRouter>
+      </TooltipProvider>
     </ThemeProvider>
   </StrictMode>
 )

@@ -62,6 +62,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/health", get(|| async { "ok" }));
 
     let protected = Router::new()
+        .nest("/api/v1/auth", routes::auth::protected_router())
         .nest("/api/v1/devices", routes::devices::router())
         .nest("/api/v1/pairing", routes::pairing::protected_router())
         .layer(from_fn_with_state(state.clone(), middleware::require_auth));

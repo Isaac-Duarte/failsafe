@@ -1,8 +1,9 @@
 use axum::body::Body;
 use chrono::{Duration, Utc};
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse,
-    DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
+    AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
+    PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -59,6 +60,50 @@ async fn upsert_test_device(app: &axum::Router, token: &str, device_id: DeviceId
         .unwrap();
 
     assert_eq!(response.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auth_me_returns_account_email() {
+    let app = test_app().await;
+
+    let register_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: "me@example.com".to_owned(),
+                        password: "hunter2".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(register_response.status(), axum::http::StatusCode::OK);
+    let AuthResponse { token } = body_json(register_response.into_body()).await;
+
+    let me_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/auth/me")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(me_response.status(), axum::http::StatusCode::OK);
+    let AccountResponse { email } = body_json(me_response.into_body()).await;
+    assert_eq!(email, "me@example.com");
 }
 
 #[tokio::test]

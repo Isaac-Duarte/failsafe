@@ -3,16 +3,36 @@ use crate::entity::{Account, account};
 use crate::error::{ServerError, ServerResult};
 use crate::state::AppState;
 use axum::extract::State;
-use axum::routing::post;
-use axum::{Json, Router};
+use axum::routing::{get, post};
+use axum::{Extension, Json, Router};
 use chrono::Utc;
-use failsafe_core::api::{AccountId, AuthLoginRequest, AuthRegisterRequest, AuthResponse};
+use failsafe_core::api::{
+    AccountId, AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse,
+};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+}
+
+pub fn protected_router() -> Router<AppState> {
+    Router::new().route("/me", get(me))
+}
+
+async fn me(
+    State(state): State<AppState>,
+    Extension(account_id): Extension<AccountId>,
+) -> ServerResult<Json<AccountResponse>> {
+    let account = Account::find_by_id(account_id.0)
+        .one(&state.db)
+        .await?
+        .ok_or(ServerError::Unauthorized)?;
+
+    Ok(Json(AccountResponse {
+        email: account.email,
+    }))
 }
 
 async fn register(

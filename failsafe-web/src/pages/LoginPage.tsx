@@ -1,9 +1,11 @@
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
+import { Loader2 } from "lucide-react"
 
+import { AuthCard } from "@/components/AuthCard"
+import { PasswordInput } from "@/components/PasswordInput"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { login } from "@/lib/api"
@@ -11,6 +13,13 @@ import { setToken } from "@/lib/auth"
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const sessionExpired = searchParams.get("session") === "expired"
+  const redirectTo =
+    (location.state as { from?: { pathname: string } } | null)?.from
+      ?.pathname ?? "/devices"
+
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -24,61 +33,71 @@ export function LoginPage() {
     try {
       const response = await login({ email, password })
       setToken(response.token)
-      navigate("/devices", { replace: true })
+      navigate(redirectTo, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "login failed")
+      setError(err instanceof Error ? err.message : "Couldn't sign in")
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Card className="w-full max-w-md shadow-lg ring-1 ring-border/50">
-      <CardHeader className="items-center text-center">
-        <img src="/failsafe-logo.svg" alt="" className="mb-1 size-8" />
-        <CardTitle>Log in</CardTitle>
-        <CardDescription>Sign in to manage your devices.</CardDescription>
-      </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {error ? (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </div>
-            <Button className="w-full" type="submit" disabled={loading}>
-              {loading ? "Signing in..." : "Log in"}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            No account?{" "}
-            <Link className="text-primary underline-offset-4 hover:underline" to="/register">
-              Register
-            </Link>
-          </p>
-        </CardContent>
-    </Card>
+    <AuthCard
+      title="Log in"
+      description="Sign in to manage your devices."
+      footer={
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          No account?{" "}
+          <Link
+            className="text-primary underline-offset-4 hover:underline"
+            to="/register"
+          >
+            Register
+          </Link>
+        </p>
+      }
+    >
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        {sessionExpired ? (
+          <Alert>
+            <AlertDescription>
+              Your session expired. Please sign in again.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={loading}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <PasswordInput
+            id="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={setPassword}
+            disabled={loading}
+          />
+        </div>
+        <Button className="w-full" type="submit" disabled={loading}>
+          {loading ? <Loader2 className="animate-spin" /> : null}
+          {loading ? "Signing in..." : "Log in"}
+        </Button>
+      </form>
+    </AuthCard>
   )
 }

@@ -12,6 +12,10 @@ export interface AuthResponse {
   token: string
 }
 
+export interface AccountResponse {
+  email: string
+}
+
 export interface DeviceInfo {
   device_id: string
   name: string
