@@ -71,9 +71,7 @@ pub fn decode(bytes: &[u8]) -> Result<ClipboardPayload, FeatureError> {
 
     Ok(ClipboardPayload {
         version: 1,
-        content: ClipboardContent::Text {
-            text: legacy.text,
-        },
+        content: ClipboardContent::Text { text: legacy.text },
     })
 }
 

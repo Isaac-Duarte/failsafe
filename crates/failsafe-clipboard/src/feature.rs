@@ -13,8 +13,8 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::io::{
-    write_received_files, ClipboardContent, ClipboardIo, ClipboardIoError, ImageDataOwned,
-    SystemClipboardIo,
+    ClipboardContent, ClipboardIo, ClipboardIoError, ImageDataOwned, SystemClipboardIo,
+    write_received_files,
 };
 use crate::limits::ClipboardLimits;
 use crate::payload::{
@@ -154,27 +154,22 @@ async fn watch_clipboard(state: Arc<ClipboardState>) {
         };
 
         let content_fingerprint = fingerprint_content(&content);
-        let payload = match content_to_payload(
-            &content,
-            state.blob_transfer.clone(),
-            state.limits,
-        )
-        .await
-        {
-            Ok(payload) => {
-                *state.last_failed.lock().await = None;
-                payload
-            }
-            Err(error) => {
-                let mut last_failed = state.last_failed.lock().await;
-                if last_failed.as_deref() == Some(content_fingerprint.as_str()) {
+        let payload =
+            match content_to_payload(&content, state.blob_transfer.clone(), state.limits).await {
+                Ok(payload) => {
+                    *state.last_failed.lock().await = None;
+                    payload
+                }
+                Err(error) => {
+                    let mut last_failed = state.last_failed.lock().await;
+                    if last_failed.as_deref() == Some(content_fingerprint.as_str()) {
+                        continue;
+                    }
+                    *last_failed = Some(content_fingerprint);
+                    eprintln!("clipboard payload build failed: {error}");
                     continue;
                 }
-                *last_failed = Some(content_fingerprint);
-                eprintln!("clipboard payload build failed: {error}");
-                continue;
-            }
-        };
+            };
 
         let fingerprint = payload::fingerprint(&payload);
         {
@@ -200,9 +195,7 @@ async fn content_to_payload(
     limits: ClipboardLimits,
 ) -> Result<ClipboardPayload, String> {
     let content = match content {
-        ClipboardContent::Text(text) => PayloadContent::Text {
-            text: text.clone(),
-        },
+        ClipboardContent::Text(text) => PayloadContent::Text { text: text.clone() },
         ClipboardContent::Html { html, plain } => {
             if html.len() <= INLINE_HTML_THRESHOLD {
                 PayloadContent::Html {
@@ -299,7 +292,10 @@ async fn resolve_payload_to_content(
             limits.validate_blob(data.len())?;
             let html = String::from_utf8(data)
                 .map_err(|error| format!("clipboard html blob is not valid utf-8: {error}"))?;
-            Ok(ClipboardContent::Html { html, plain: plain.clone() })
+            Ok(ClipboardContent::Html {
+                html,
+                plain: plain.clone(),
+            })
         }
         PayloadContent::Image {
             hash,
@@ -363,7 +359,10 @@ fn encode_image_png(image: &ImageDataOwned) -> Result<Vec<u8>, String> {
         .ok_or_else(|| "invalid clipboard image dimensions".to_owned())?;
     let mut encoded = Vec::new();
     DynamicImage::ImageRgba8(buffer)
-        .write_to(&mut std::io::Cursor::new(&mut encoded), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut encoded),
+            image::ImageFormat::Png,
+        )
         .map_err(|error| error.to_string())?;
     Ok(encoded)
 }

@@ -41,8 +41,8 @@ async fn devices_list(
     }
 
     println!(
-        "{:<20} {:<38} {:<12} {:<20} {}",
-        "NAME", "DEVICE ID", "STATUS", "FEATURES", "LAST SEEN"
+        "{:<20} {:<38} {:<12} {:<20} LAST SEEN",
+        "NAME", "DEVICE ID", "STATUS", "FEATURES"
     );
     for device in response.devices {
         let features = device
@@ -103,7 +103,9 @@ async fn devices_remove(
         io::stdout().flush().map_err(DaemonError::Io)?;
 
         let mut answer = String::new();
-        io::stdin().read_line(&mut answer).map_err(DaemonError::Io)?;
+        io::stdin()
+            .read_line(&mut answer)
+            .map_err(DaemonError::Io)?;
         let answer = answer.trim().to_ascii_lowercase();
         if answer != "y" && answer != "yes" {
             println!("Cancelled.");

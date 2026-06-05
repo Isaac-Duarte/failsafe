@@ -13,10 +13,7 @@ pub struct ImageDataOwned {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardContent {
     Text(String),
-    Html {
-        html: String,
-        plain: String,
-    },
+    Html { html: String, plain: String },
     Image(ImageDataOwned),
     Files(Vec<PathBuf>),
 }
@@ -210,8 +207,9 @@ pub fn default_clipboard_cache_dir() -> Option<PathBuf> {
 pub async fn write_received_files(
     files: &[(String, Vec<u8>)],
 ) -> Result<Vec<PathBuf>, ClipboardIoError> {
-    let base = default_clipboard_cache_dir()
-        .ok_or_else(|| ClipboardIoError::Unavailable("clipboard cache dir unavailable".to_owned()))?;
+    let base = default_clipboard_cache_dir().ok_or_else(|| {
+        ClipboardIoError::Unavailable("clipboard cache dir unavailable".to_owned())
+    })?;
     let session = base.join(uuid::Uuid::new_v4().to_string());
     tokio::fs::create_dir_all(&session)
         .await

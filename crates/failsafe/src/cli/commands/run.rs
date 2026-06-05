@@ -1,15 +1,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use failsafe::{
-    Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle,
-};
+use failsafe::{Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle};
 use failsafe_core::peer::PeerDirectory;
 use tracing::info;
 
 use crate::cli::context::{config_path_or_default, load_config};
 
-pub async fn run(config_path: Option<PathBuf>, server_url: Option<String>) -> Result<(), DaemonError> {
+pub async fn run(
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
     let config = load_config(&path, server_url, true)?;
 

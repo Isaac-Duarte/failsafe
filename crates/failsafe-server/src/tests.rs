@@ -530,7 +530,9 @@ async fn heartbeat_updates_online_status() {
         .unwrap();
 
     assert_eq!(heartbeat_response.status(), axum::http::StatusCode::OK);
-    let DeviceInfo { online, last_seen, .. } = body_json(heartbeat_response.into_body()).await;
+    let DeviceInfo {
+        online, last_seen, ..
+    } = body_json(heartbeat_response.into_body()).await;
     assert!(online);
     assert!(last_seen.is_some());
 }

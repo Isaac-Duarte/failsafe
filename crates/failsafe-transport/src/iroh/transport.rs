@@ -10,7 +10,7 @@ use failsafe_core::peer_address::PeerAddressBook;
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
-use iroh_blobs::{BlobsProtocol, ALPN as BLOBS_ALPN};
+use iroh_blobs::{ALPN as BLOBS_ALPN, BlobsProtocol};
 use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
@@ -62,11 +62,8 @@ impl IrohTransport {
         let blob_transfer =
             IrohBlobTransfer::new(blob_store, endpoint.clone(), address_state.clone());
 
-        let failsafe_protocol = FailsafeProtocol::new(
-            pool.clone(),
-            inbox_tx.clone(),
-            address_state.clone(),
-        );
+        let failsafe_protocol =
+            FailsafeProtocol::new(pool.clone(), inbox_tx.clone(), address_state.clone());
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
             .accept(BLOBS_ALPN, blobs)

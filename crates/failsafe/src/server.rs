@@ -109,10 +109,7 @@ impl ServerClient {
     }
 
     pub async fn heartbeat_device(&self, device_id: DeviceId) -> Result<(), DaemonError> {
-        let url = format!(
-            "{}/api/v1/devices/{}/heartbeat",
-            self.base_url, device_id
-        );
+        let url = format!("{}/api/v1/devices/{}/heartbeat", self.base_url, device_id);
         let response = self
             .http
             .post(url)

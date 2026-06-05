@@ -58,9 +58,7 @@ impl BlobTransfer for MockBlobTransfer {
             )
             .as_bytes(),
         ));
-        state
-            .collections
-            .insert(root.as_str().to_owned(), files);
+        state.collections.insert(root.as_str().to_owned(), files);
         Ok(root)
     }
 

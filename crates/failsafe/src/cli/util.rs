@@ -5,9 +5,8 @@ use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 
 pub fn parse_device_id(id: &str) -> Result<DeviceId, DaemonError> {
-    DeviceId::from_str(id.trim()).map_err(|error| {
-        DaemonError::Config(format!("invalid device id `{id}`: {error}"))
-    })
+    DeviceId::from_str(id.trim())
+        .map_err(|error| DaemonError::Config(format!("invalid device id `{id}`: {error}")))
 }
 
 pub fn parse_feature_list(features: &str) -> Result<Vec<FeatureId>, DaemonError> {

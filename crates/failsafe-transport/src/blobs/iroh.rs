@@ -7,10 +7,10 @@ use bytes::Bytes;
 use failsafe_core::device::DeviceId;
 use iroh::Endpoint;
 use iroh::EndpointId;
+use iroh_blobs::api::Store;
 use iroh_blobs::api::downloader::Shuffled;
 use iroh_blobs::format::collection::Collection;
 use iroh_blobs::store::fs::FsStore;
-use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
 
 use crate::iroh::SharedAddressState;
@@ -24,11 +24,7 @@ pub struct IrohBlobTransfer {
 }
 
 impl IrohBlobTransfer {
-    pub fn new(
-        store: FsStore,
-        endpoint: Endpoint,
-        address_state: SharedAddressState,
-    ) -> Arc<Self> {
+    pub fn new(store: FsStore, endpoint: Endpoint, address_state: SharedAddressState) -> Arc<Self> {
         Arc::new(Self {
             store,
             endpoint,
@@ -41,14 +37,14 @@ impl IrohBlobTransfer {
     }
 
     fn parse_hash(hash: &BlobHash) -> Result<Hash, BlobError> {
-        Hash::from_str(hash.as_str())
-            .map_err(|error| BlobError::InvalidHash(error.to_string()))
+        Hash::from_str(hash.as_str()).map_err(|error| BlobError::InvalidHash(error.to_string()))
     }
 
     fn peer_endpoint_id(&self, peer: DeviceId) -> Result<EndpointId, BlobError> {
-        let state = self.address_state.read().map_err(|error| {
-            BlobError::Store(format!("address state lock poisoned: {error}"))
-        })?;
+        let state = self
+            .address_state
+            .read()
+            .map_err(|error| BlobError::Store(format!("address state lock poisoned: {error}")))?;
         let address = state
             .book
             .get(peer)

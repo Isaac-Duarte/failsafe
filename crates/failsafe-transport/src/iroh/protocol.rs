@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 
 use crate::codec;
 use crate::iroh::SharedAddressState;
-use crate::iroh::manager::{register_outbound_connection, ConnectionPool};
+use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]
@@ -43,9 +43,7 @@ impl ProtocolHandler for FailsafeProtocol {
             }
         };
 
-        self.pool
-            .insert(device, connection.clone())
-            .await;
+        self.pool.insert(device, connection.clone()).await;
 
         debug!(%device, "accepted failsafe protocol connection");
 
@@ -84,9 +82,9 @@ pub(crate) fn resolve_device(
     address_state: &SharedAddressState,
 ) -> Result<DeviceId, TransportError> {
     let remote_id = connection.remote_id().to_string();
-    let state = address_state.read().map_err(|error| {
-        TransportError::Codec(format!("address state lock poisoned: {error}"))
-    })?;
+    let state = address_state
+        .read()
+        .map_err(|error| TransportError::Codec(format!("address state lock poisoned: {error}")))?;
     state
         .reverse_lookup
         .get(&remote_id)

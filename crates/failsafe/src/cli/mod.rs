@@ -26,7 +26,9 @@ pub async fn execute() -> Result<(), DaemonError> {
             email,
             password,
         } => commands::authenticate(config, server_url, email, password, false).await,
-        Command::Pair { config, code, name } => commands::pair(config, server_url, code, name).await,
+        Command::Pair { config, code, name } => {
+            commands::pair(config, server_url, code, name).await
+        }
         Command::Status { config } => commands::status(config, server_url),
         Command::Devices { command } => commands::devices(command, server_url).await,
     }

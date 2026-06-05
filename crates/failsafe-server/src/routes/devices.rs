@@ -108,10 +108,10 @@ async fn patch_device(
         ));
     }
 
-    if let Some(name) = &request.name {
-        if name.trim().is_empty() {
-            return Err(ServerError::BadRequest("name cannot be empty".to_owned()));
-        }
+    if let Some(name) = &request.name
+        && name.trim().is_empty()
+    {
+        return Err(ServerError::BadRequest("name cannot be empty".to_owned()));
     }
 
     let existing = load_active_device(device_id, account_id, &state).await?;

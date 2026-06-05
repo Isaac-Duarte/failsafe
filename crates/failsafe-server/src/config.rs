@@ -38,7 +38,8 @@ impl ListenConfig {
                 .map_err(|error| format!("invalid FAILSAFE_LISTEN: {error}"));
         }
 
-        let host = std::env::var("FAILSAFE_LISTEN_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_owned());
+        let host =
+            std::env::var("FAILSAFE_LISTEN_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_owned());
         let port = parse_port_env("FAILSAFE_LISTEN_PORT")?.unwrap_or(DEFAULT_PORT);
 
         parse_socket_addr(&host, port)
