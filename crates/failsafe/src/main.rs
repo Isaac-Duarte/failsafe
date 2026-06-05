@@ -176,18 +176,11 @@ async fn run(config_path: Option<PathBuf>, server_url: Option<String>) -> Result
     let path = config_path_or_default(config_path)?;
     let config = load_config(&path, server_url, true)?;
 
-    match config.transport {
-        failsafe::config::TransportKind::Mock => {
-            info!("mock transport is in-memory only; use transport = \"iroh\" for real devices");
-        }
-        failsafe::config::TransportKind::Iroh => {}
-    }
-
     let credentials = Credentials::load_or_error()?;
     let server_client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
 
     let peers = Arc::new(PeerDirectory::new());
-    let bundle = create_transport_bundle(&config, None).await?;
+    let bundle = create_transport_bundle(&config).await?;
 
     if let Some(key) = &bundle.iroh_public_key {
         info!(iroh_public_key = %key, "iroh endpoint ready");
@@ -354,7 +347,7 @@ fn status(config_path: Option<PathBuf>, server_url: Option<String>) -> Result<()
             }
         );
     }
-    println!("transport: {:?}", config.transport);
+    println!("transport: iroh");
     println!("enabled_features:");
     for feature in &config.enabled_features {
         println!("  - {feature}");

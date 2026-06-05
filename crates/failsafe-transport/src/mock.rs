@@ -41,7 +41,7 @@ impl MockNetwork {
     }
 }
 
-/// In-memory transport for tests and local development.
+/// In-memory transport for unit tests (`test-util` feature).
 pub struct MockTransport {
     local_id: DeviceId,
     inbox: Mutex<mpsc::Receiver<FeatureMessage>>,

@@ -7,14 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum TransportKind {
-    Mock,
-    #[default]
-    Iroh,
-}
-
 fn default_device_name() -> String {
     "my-device".to_owned()
 }
@@ -37,8 +29,6 @@ pub struct Config {
     #[serde(default)]
     pub enabled_features: Vec<FeatureId>,
     #[serde(default)]
-    pub transport: TransportKind,
-    #[serde(default)]
     pub blob_store_path: Option<PathBuf>,
     #[serde(default = "default_clipboard_max_file_bytes")]
     pub clipboard_max_file_bytes: u64,
@@ -51,7 +41,6 @@ impl Config {
             device_name: default_device_name(),
             server_url: default_server_url(),
             enabled_features: vec![FeatureId::Clipboard],
-            transport: TransportKind::Iroh,
             blob_store_path: None,
             clipboard_max_file_bytes: default_clipboard_max_file_bytes(),
         }

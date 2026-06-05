@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 default = []
+test-util = []
 iroh = ["dep:iroh", "dep:bytes", "dep:rand", "dep:tracing"]
 iroh-blobs = ["iroh", "dep:iroh-blobs", "dep:bytes"]
 

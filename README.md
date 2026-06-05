@@ -45,4 +45,4 @@ In `~/.config/failsafe/config.toml`:
 clipboard_max_file_bytes = 104857600
 ```
 
-The mock transport (`transport = "mock"`) only supports inline text clipboard sync in tests; use `transport = "iroh"` for rich clipboard.
+Device sync always uses the Iroh transport; there is no mock/in-memory transport at runtime.

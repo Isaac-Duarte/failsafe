@@ -197,7 +197,7 @@ impl Daemon {
         })?;
 
         let iroh_public_key = self.iroh_public_key.clone().ok_or_else(|| {
-            DaemonError::Config("iroh public key is required; set transport = \"iroh\"".to_owned())
+            DaemonError::Config("iroh public key is required".to_owned())
         })?;
 
         client
@@ -292,10 +292,10 @@ impl Daemon {
 }
 
 pub async fn register_local_device(config: &Config, auth_token: String) -> Result<(), DaemonError> {
-    let bundle = create_transport_bundle(config, None).await?;
+    let bundle = create_transport_bundle(config).await?;
     let iroh_public_key = bundle
         .iroh_public_key
-        .unwrap_or_else(|| format!("mock:{}", config.device_id));
+        .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
 
     let client = ServerClient::new(config.server_url.clone(), auth_token);
     client
@@ -308,60 +308,52 @@ pub async fn register_local_device(config: &Config, auth_token: String) -> Resul
         .await
 }
 
-pub async fn create_transport_bundle(
-    config: &Config,
-    network: Option<Arc<failsafe_transport::mock::MockNetwork>>,
-) -> Result<TransportBundle, DaemonError> {
-    match config.transport {
-        crate::config::TransportKind::Mock => {
-            let network = network.unwrap_or_else(failsafe_transport::mock::MockNetwork::new);
-            let transport = Arc::new(network.connect_with_id(config.device_id).await);
-            let peer_updater = transport.clone();
-            Ok(TransportBundle {
-                transport,
-                peer_updater,
-                blob_transfer: None,
-                iroh_public_key: None,
-            })
-        }
-        crate::config::TransportKind::Iroh => {
-            let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
-                DaemonError::Config("could not determine iroh secret key path".to_owned())
-            })?;
-            let blob_store_path = config.resolved_blob_store_path().ok_or_else(|| {
-                DaemonError::Config("could not determine blob store path".to_owned())
-            })?;
+pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle, DaemonError> {
+    let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
+        DaemonError::Config("could not determine iroh secret key path".to_owned())
+    })?;
+    let blob_store_path = config.resolved_blob_store_path().ok_or_else(|| {
+        DaemonError::Config("could not determine blob store path".to_owned())
+    })?;
 
-            let transport = Arc::new(
-                failsafe_transport::iroh::IrohTransport::start(
-                    failsafe_transport::iroh::IrohConfig {
-                        device_id: config.device_id,
-                        secret_key_path,
-                        blob_store_path,
-                        address_book: PeerAddressBook::default(),
-                    },
-                )
-                .await?,
-            );
-            let iroh_public_key = transport.public_key_hex();
-            let peer_updater = transport.clone();
-            let blob_transfer = Some(transport.blob_transfer());
+    let transport = Arc::new(
+        failsafe_transport::iroh::IrohTransport::start(failsafe_transport::iroh::IrohConfig {
+            device_id: config.device_id,
+            secret_key_path,
+            blob_store_path,
+            address_book: PeerAddressBook::default(),
+        })
+        .await?,
+    );
+    let iroh_public_key = transport.public_key_hex();
+    let peer_updater = transport.clone();
+    let blob_transfer = Some(transport.blob_transfer());
 
-            Ok(TransportBundle {
-                transport,
-                peer_updater,
-                blob_transfer,
-                iroh_public_key: Some(iroh_public_key),
-            })
-        }
-    }
+    Ok(TransportBundle {
+        transport,
+        peer_updater,
+        blob_transfer,
+        iroh_public_key: Some(iroh_public_key),
+    })
 }
 
-pub async fn create_transport(
+pub async fn create_transport(config: &Config) -> Result<Arc<dyn Transport>, DaemonError> {
+    Ok(create_transport_bundle(config).await?.transport)
+}
+
+#[cfg(test)]
+pub async fn create_test_transport_bundle(
     config: &Config,
-    network: Option<Arc<failsafe_transport::mock::MockNetwork>>,
-) -> Result<Arc<dyn Transport>, DaemonError> {
-    Ok(create_transport_bundle(config, network).await?.transport)
+    network: Arc<failsafe_transport::mock::MockNetwork>,
+) -> TransportBundle {
+    let transport = Arc::new(network.connect_with_id(config.device_id).await);
+    let peer_updater = transport.clone();
+    TransportBundle {
+        transport,
+        peer_updater,
+        blob_transfer: None,
+        iroh_public_key: None,
+    }
 }
 
 #[cfg(test)]
@@ -372,16 +364,12 @@ mod tests {
     use failsafe_transport::mock::MockNetwork;
 
     use super::*;
-    use crate::config::{Config, TransportKind};
+    use crate::config::Config;
 
     #[tokio::test]
     async fn builds_from_config() {
-        let network = MockNetwork::new();
-        let mut config = Config::new(DeviceId::new());
-        config.transport = TransportKind::Mock;
-        let bundle = create_transport_bundle(&config, Some(network.clone()))
-            .await
-            .unwrap();
+        let config = Config::new(DeviceId::new());
+        let bundle = create_test_transport_bundle(&config, MockNetwork::new()).await;
         let peers = Arc::new(PeerDirectory::new());
 
         let daemon = Daemon::from_config(&config, bundle, peers, None).unwrap();
@@ -389,13 +377,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_transport_uses_configured_device_id() {
-        let mut config = Config::new(DeviceId::new());
-        config.transport = TransportKind::Mock;
-        let transport = create_transport(&config, Some(MockNetwork::new()))
-            .await
-            .unwrap();
+    async fn create_test_transport_uses_configured_device_id() {
+        let config = Config::new(DeviceId::new());
+        let bundle = create_test_transport_bundle(&config, MockNetwork::new()).await;
 
-        assert_eq!(transport.local_device_id(), config.device_id);
+        assert_eq!(bundle.transport.local_device_id(), config.device_id);
     }
 }

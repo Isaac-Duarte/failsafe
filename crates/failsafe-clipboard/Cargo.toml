@@ -27,5 +27,5 @@ arboard = { version = "3", features = ["image-data"] }
 arboard = { version = "3", features = ["image-data"] }
 
 [dev-dependencies]
-failsafe-transport.workspace = true
+failsafe-transport = { workspace = true, features = ["test-util"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
