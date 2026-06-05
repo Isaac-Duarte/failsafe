@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use failsafe_clipboard::feature::ClipboardFeature;
 use failsafe_clipboard::limits::ClipboardLimits;
-use failsafe_transport::blobs::BlobTransfer;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
+use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
 use failsafe_transport::transport::Transport;
@@ -196,9 +196,10 @@ impl Daemon {
             DaemonError::Config("credentials are required; pair this device first".to_owned())
         })?;
 
-        let iroh_public_key = self.iroh_public_key.clone().ok_or_else(|| {
-            DaemonError::Config("iroh public key is required".to_owned())
-        })?;
+        let iroh_public_key = self
+            .iroh_public_key
+            .clone()
+            .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
 
         client
             .upsert_device(DeviceUpsertRequest {
@@ -312,9 +313,9 @@ pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle,
     let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
         DaemonError::Config("could not determine iroh secret key path".to_owned())
     })?;
-    let blob_store_path = config.resolved_blob_store_path().ok_or_else(|| {
-        DaemonError::Config("could not determine blob store path".to_owned())
-    })?;
+    let blob_store_path = config
+        .resolved_blob_store_path()
+        .ok_or_else(|| DaemonError::Config("could not determine blob store path".to_owned()))?;
 
     let transport = Arc::new(
         failsafe_transport::iroh::IrohTransport::start(failsafe_transport::iroh::IrohConfig {
