@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,21 @@ impl fmt::Display for FeatureId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Clipboard => write!(f, "clipboard"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("unknown feature `{0}`")]
+pub struct UnknownFeatureId(pub String);
+
+impl FromStr for FeatureId {
+    type Err = UnknownFeatureId;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "clipboard" => Ok(Self::Clipboard),
+            other => Err(UnknownFeatureId(other.to_owned())),
         }
     }
 }

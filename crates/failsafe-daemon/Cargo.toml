@@ -3,7 +3,24 @@ name = "failsafe-daemon"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "failsafe"
+path = "src/main.rs"
+
 [dependencies]
+async-trait.workspace = true
+clap.workspace = true
+dirs.workspace = true
 failsafe-clipboard.workspace = true
 failsafe-core.workspace = true
 failsafe-transport.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+failsafe-clipboard.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }

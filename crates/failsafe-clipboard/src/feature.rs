@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_message_updates_clipboard() {
-        let (transport, _peer) = MockTransport::pair();
+        let (transport, _peer) = MockTransport::pair().await;
         let publisher = MessageRouter::into_publisher(Arc::new(transport), Arc::new(PeerDirectory::new()));
         let clipboard = MockClipboardIo::new();
 
@@ -174,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn watch_broadcasts_local_changes() {
-        let (local_transport, peer_transport) = MockTransport::pair();
+        let (local_transport, peer_transport) = MockTransport::pair().await;
         let peer_id = peer_transport.local_device_id();
 
         let peers = Arc::new(PeerDirectory::new());

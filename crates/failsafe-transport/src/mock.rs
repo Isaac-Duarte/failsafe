@@ -10,6 +10,34 @@ use crate::transport::{Transport, TransportError};
 
 type Router = Arc<Mutex<HashMap<DeviceId, mpsc::Sender<FeatureMessage>>>>;
 
+/// Shared in-memory network for connecting multiple mock transports.
+pub struct MockNetwork {
+    router: Router,
+}
+
+impl MockNetwork {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            router: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    pub async fn connect(self: &Arc<Self>) -> MockTransport {
+        self.connect_with_id(DeviceId::new()).await
+    }
+
+    pub async fn connect_with_id(self: &Arc<Self>, local_id: DeviceId) -> MockTransport {
+        let (tx, rx) = mpsc::channel(32);
+        self.router.lock().await.insert(local_id, tx);
+
+        MockTransport {
+            local_id,
+            inbox: Mutex::new(rx),
+            router: self.router.clone(),
+        }
+    }
+}
+
 /// In-memory transport for tests and local development.
 pub struct MockTransport {
     local_id: DeviceId,
@@ -18,30 +46,11 @@ pub struct MockTransport {
 }
 
 impl MockTransport {
-    /// Creates two transports that can exchange messages directly.
-    pub fn pair() -> (Self, Self) {
-        let (tx_a, rx_a) = mpsc::channel(32);
-        let (tx_b, rx_b) = mpsc::channel(32);
-
-        let id_a = DeviceId::new();
-        let id_b = DeviceId::new();
-
-        let mut routes = HashMap::new();
-        routes.insert(id_a, tx_a);
-        routes.insert(id_b, tx_b);
-        let router = Arc::new(Mutex::new(routes));
-
-        let a = Self {
-            local_id: id_a,
-            inbox: Mutex::new(rx_a),
-            router: router.clone(),
-        };
-        let b = Self {
-            local_id: id_b,
-            inbox: Mutex::new(rx_b),
-            router,
-        };
-
+    /// Creates two transports on an isolated network.
+    pub async fn pair() -> (Self, Self) {
+        let network = MockNetwork::new();
+        let a = network.connect().await;
+        let b = network.connect().await;
         (a, b)
     }
 }
@@ -91,10 +100,11 @@ mod tests {
     use failsafe_core::feature::FeatureId;
 
     use super::*;
+    use crate::transport::Transport;
 
     #[tokio::test]
     async fn paired_transports_exchange_messages() {
-        let (a, b) = MockTransport::pair();
+        let (a, b) = MockTransport::pair().await;
 
         let message = FeatureMessage::new(
             a.local_device_id(),
@@ -109,8 +119,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn network_supports_multiple_peers() {
+        let network = MockNetwork::new();
+        let a = network.connect().await;
+        let b = network.connect().await;
+        let c = network.connect().await;
+
+        let message = FeatureMessage::new(
+            a.local_device_id(),
+            c.local_device_id(),
+            FeatureId::Clipboard,
+            b"hello",
+        );
+        a.send(message.clone()).await.unwrap();
+
+        assert!(b.try_recv().await.unwrap().is_none());
+        assert_eq!(c.recv().await.unwrap(), message);
+    }
+
+    #[tokio::test]
     async fn send_to_unknown_peer_fails() {
-        let (a, _b) = MockTransport::pair();
+        let (a, _b) = MockTransport::pair().await;
 
         let err = a
             .send(FeatureMessage::new(

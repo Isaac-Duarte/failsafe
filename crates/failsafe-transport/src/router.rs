@@ -49,12 +49,8 @@ impl OutboundPublisher for MessageRouter {
         let mut failures = Vec::new();
 
         for peer in recipients {
-            let message = FeatureMessage::new(
-                local_id,
-                peer,
-                outbound.feature,
-                outbound.payload.clone(),
-            );
+            let message =
+                FeatureMessage::new(local_id, peer, outbound.feature, outbound.payload.clone());
 
             if let Err(error) = self.transport.send(message).await {
                 failures.push(format!("{peer}: {error}"));
@@ -81,14 +77,13 @@ mod tests {
 
     #[tokio::test]
     async fn publishes_to_configured_connected_peer() {
-        let (local_transport, peer_transport) = MockTransport::pair();
+        let (local_transport, peer_transport) = MockTransport::pair().await;
         let peer_id = peer_transport.local_device_id();
 
         let peers = Arc::new(PeerDirectory::new());
         peers.replace_peers([peer_id]).await;
 
-        let publisher =
-            MessageRouter::into_publisher(Arc::new(local_transport), peers);
+        let publisher = MessageRouter::into_publisher(Arc::new(local_transport), peers);
 
         publisher
             .publish(OutboundMessage::new(FeatureId::Clipboard, b"hello"))
@@ -102,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     async fn skips_peers_with_feature_disabled() {
-        let (local_transport, peer_transport) = MockTransport::pair();
+        let (local_transport, peer_transport) = MockTransport::pair().await;
         let peer_id = peer_transport.local_device_id();
 
         let peers = Arc::new(PeerDirectory::new());
@@ -111,8 +106,7 @@ mod tests {
             .set_feature_enabled(peer_id, FeatureId::Clipboard, false)
             .await;
 
-        let publisher =
-            MessageRouter::into_publisher(Arc::new(local_transport), peers);
+        let publisher = MessageRouter::into_publisher(Arc::new(local_transport), peers);
 
         publisher
             .publish(OutboundMessage::new(FeatureId::Clipboard, b"hello"))
