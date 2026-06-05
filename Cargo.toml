@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["crates/failsafe-clipboard","crates/failsafe-core", "crates/failsafe-daemon", "crates/failsafe-sevrer", "crates/failsafe-transport"]
