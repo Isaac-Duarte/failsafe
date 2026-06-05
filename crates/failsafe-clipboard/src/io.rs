@@ -60,8 +60,9 @@ fn read_system_clipboard() -> Result<Option<ClipboardContent>, ClipboardIoError>
         Clipboard::new().map_err(|error| ClipboardIoError::Unavailable(error.to_string()))?;
 
     if let Ok(files) = clipboard.get().file_list() {
-        if !files.is_empty() {
-            return Ok(Some(ClipboardContent::Files(files)));
+        let existing: Vec<PathBuf> = files.into_iter().filter(|path| path.exists()).collect();
+        if !existing.is_empty() {
+            return Ok(Some(ClipboardContent::Files(existing)));
         }
     }
 

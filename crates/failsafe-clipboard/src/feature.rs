@@ -29,6 +29,7 @@ struct ClipboardState {
     blob_transfer: Arc<dyn BlobTransfer>,
     limits: ClipboardLimits,
     last_emitted: Mutex<Option<String>>,
+    last_failed: Mutex<Option<String>>,
     applying_remote: AtomicBool,
 }
 
@@ -72,6 +73,7 @@ impl ClipboardFeature {
                 blob_transfer,
                 limits,
                 last_emitted: Mutex::new(None),
+                last_failed: Mutex::new(None),
                 applying_remote: AtomicBool::new(false),
             }),
             watch_task: None,
@@ -151,6 +153,7 @@ async fn watch_clipboard(state: Arc<ClipboardState>) {
             }
         };
 
+        let content_fingerprint = fingerprint_content(&content);
         let payload = match content_to_payload(
             &content,
             state.blob_transfer.clone(),
@@ -158,8 +161,16 @@ async fn watch_clipboard(state: Arc<ClipboardState>) {
         )
         .await
         {
-            Ok(payload) => payload,
+            Ok(payload) => {
+                *state.last_failed.lock().await = None;
+                payload
+            }
             Err(error) => {
+                let mut last_failed = state.last_failed.lock().await;
+                if last_failed.as_deref() == Some(content_fingerprint.as_str()) {
+                    continue;
+                }
+                *last_failed = Some(content_fingerprint);
                 eprintln!("clipboard payload build failed: {error}");
                 continue;
             }
@@ -227,6 +238,9 @@ async fn content_to_payload(
         ClipboardContent::Files(paths) => {
             let mut files = Vec::with_capacity(paths.len());
             for path in paths {
+                if !path.exists() {
+                    continue;
+                }
                 let data = tokio::fs::read(path)
                     .await
                     .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
@@ -236,6 +250,9 @@ async fn content_to_payload(
                     .unwrap_or("file")
                     .to_owned();
                 files.push((name, data));
+            }
+            if files.is_empty() {
+                return Err("clipboard file paths are missing or unreadable".to_owned());
             }
             limits.validate_files(&files)?;
             let hash = blob_transfer
@@ -317,6 +334,30 @@ async fn resolve_payload_to_content(
     }
 }
 
+fn fingerprint_content(content: &ClipboardContent) -> String {
+    let seed = match content {
+        ClipboardContent::Text(text) => format!("text:{text}"),
+        ClipboardContent::Html { html, plain } => format!("html:{html}\0{plain}"),
+        ClipboardContent::Image(image) => {
+            format!(
+                "image:{}x{}:{}",
+                image.width,
+                image.height,
+                hex::encode(blake3::hash(&image.rgba).as_bytes())
+            )
+        }
+        ClipboardContent::Files(paths) => {
+            let joined = paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\0");
+            format!("files:{joined}")
+        }
+    };
+    hex::encode(blake3::hash(seed.as_bytes()).as_bytes())
+}
+
 fn encode_image_png(image: &ImageDataOwned) -> Result<Vec<u8>, String> {
     let buffer: RgbaImage = ImageBuffer::from_raw(image.width, image.height, image.rgba.clone())
         .ok_or_else(|| "invalid clipboard image dimensions".to_owned())?;
@@ -344,6 +385,7 @@ fn io_error_to_feature_error(error: ClipboardIoError) -> FeatureError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use failsafe_core::device::DeviceId;
@@ -430,6 +472,18 @@ mod tests {
         );
 
         feature.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn missing_file_paths_fail_payload_build() {
+        let result = content_to_payload(
+            &ClipboardContent::Files(vec![PathBuf::from("/no/such/file.csv")]),
+            Arc::new(MockBlobTransfer::new()),
+            ClipboardLimits::default(),
+        )
+        .await;
+
+        assert!(result.is_err());
     }
 
     #[tokio::test]
