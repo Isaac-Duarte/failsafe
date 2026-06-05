@@ -53,6 +53,21 @@ cargo build --release -p failsafe-server
 
 Both `failsafe-server` and `failsafe` load a `.env` file from the current working directory when present.
 
+Configure the server listen address via `.env`, flags, or both (CLI wins):
+
+```bash
+# .env
+FAILSAFE_LISTEN_HOST=0.0.0.0
+FAILSAFE_LISTEN_PORT=8080
+
+# or a single variable
+FAILSAFE_LISTEN=0.0.0.0:8080
+
+# or CLI flags
+failsafe-server --host 0.0.0.0 --port 8080
+failsafe-server --listen 0.0.0.0:8080
+```
+
 Open `http://localhost:8080` for the web UI (register, log in, view devices, generate pairing codes).
 
 To skip the frontend rebuild during Rust iteration (when `failsafe-web/dist` already exists):

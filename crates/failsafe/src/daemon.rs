@@ -311,12 +311,13 @@ mod tests {
     use failsafe_transport::mock::MockNetwork;
 
     use super::*;
-    use crate::config::Config;
+    use crate::config::{Config, TransportKind};
 
     #[tokio::test]
     async fn builds_from_config() {
         let network = MockNetwork::new();
-        let config = Config::new(DeviceId::new());
+        let mut config = Config::new(DeviceId::new());
+        config.transport = TransportKind::Mock;
         let bundle = create_transport_bundle(&config, Some(network.clone()))
             .await
             .unwrap();
@@ -328,7 +329,8 @@ mod tests {
 
     #[tokio::test]
     async fn create_transport_uses_configured_device_id() {
-        let config = Config::new(DeviceId::new());
+        let mut config = Config::new(DeviceId::new());
+        config.transport = TransportKind::Mock;
         let transport = create_transport(&config, Some(MockNetwork::new()))
             .await
             .unwrap();

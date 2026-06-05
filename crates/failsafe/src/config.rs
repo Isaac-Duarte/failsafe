@@ -7,12 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-#[derive(Default)]
 pub enum TransportKind {
-    #[default]
     Mock,
+    #[default]
     Iroh,
 }
 
@@ -44,7 +43,7 @@ impl Config {
             device_name: default_device_name(),
             server_url: default_server_url(),
             enabled_features: vec![FeatureId::Clipboard],
-            transport: TransportKind::Mock,
+            transport: TransportKind::Iroh,
         }
     }
 
