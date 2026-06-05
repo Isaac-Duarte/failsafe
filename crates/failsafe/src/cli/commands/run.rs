@@ -24,6 +24,7 @@ pub async fn run(
         info!(iroh_public_key = %key, "iroh endpoint ready");
     }
 
-    let mut daemon = Daemon::from_config(&config, bundle, peers, Some(server_client))?;
+    let mut daemon =
+        Daemon::from_config(path.clone(), config, bundle, peers, Some(server_client))?;
     daemon.run().await
 }

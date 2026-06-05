@@ -1,12 +1,89 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 
 use failsafe_core::api::DeviceInfo;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
+use failsafe_core::registry::FeatureRegistry;
 use failsafe_transport::peer_updater::PeerAddressUpdater;
+
+use crate::config::Config;
+use crate::error::DaemonError;
+
+pub fn find_self_device<'a>(
+    self_id: DeviceId,
+    devices: &'a [DeviceInfo],
+) -> Option<&'a DeviceInfo> {
+    devices.iter().find(|device| device.device_id == self_id)
+}
+
+pub async fn apply_self_from_server(
+    self_id: DeviceId,
+    devices: &[DeviceInfo],
+    device_name: &mut String,
+    local_features: &mut HashSet<FeatureId>,
+    config: &mut Config,
+    config_path: &Path,
+    registry: &mut FeatureRegistry,
+    start_new_features: bool,
+) -> Result<bool, DaemonError> {
+    let Some(self_device) = find_self_device(self_id, devices) else {
+        return Ok(false);
+    };
+
+    let server_features: HashSet<_> = self_device.enabled_features.iter().copied().collect();
+    let name_changed = self_device.name != *device_name;
+    let features_changed = server_features != *local_features;
+    let policy_changed = name_changed || features_changed;
+
+    if name_changed {
+        *device_name = self_device.name.clone();
+    }
+
+    if features_changed {
+        *local_features = server_features;
+        sync_features_to_registry(local_features, registry, start_new_features).await?;
+    }
+
+    if policy_changed {
+        config.apply_server_policy(
+            &self_device.name,
+            &self_device.enabled_features,
+            config_path,
+        )?;
+    }
+
+    Ok(policy_changed)
+}
+
+async fn sync_features_to_registry(
+    target: &HashSet<FeatureId>,
+    registry: &mut FeatureRegistry,
+    start_new_features: bool,
+) -> Result<(), DaemonError> {
+    for feature in FeatureId::all() {
+        let should_enable = target.contains(feature);
+        let is_enabled = registry.is_enabled(*feature);
+
+        if should_enable && !is_enabled {
+            if start_new_features {
+                registry
+                    .enable_and_start(*feature)
+                    .await
+                    .map_err(DaemonError::Feature)?;
+            } else {
+                registry.enable(*feature).map_err(DaemonError::Feature)?;
+            }
+        } else if !should_enable && is_enabled {
+            registry.disable(*feature).await;
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn apply_server_devices(
     self_id: DeviceId,
@@ -43,11 +120,43 @@ pub async fn apply_server_devices(
 mod tests {
     use std::sync::Arc;
 
+    use async_trait::async_trait;
     use failsafe_core::api::DeviceInfo;
+    use failsafe_core::feature::{Feature, FeatureError};
+    use failsafe_core::message::FeatureMessage;
     use failsafe_core::peer::PeerDirectory;
+    use failsafe_core::registry::FeatureRegistry;
     use failsafe_transport::mock::MockTransport;
 
     use super::*;
+    use crate::config::Config;
+
+    struct EchoFeature;
+
+    #[async_trait]
+    impl Feature for EchoFeature {
+        fn id(&self) -> FeatureId {
+            FeatureId::Clipboard
+        }
+
+        async fn start(&mut self) -> Result<(), FeatureError> {
+            Ok(())
+        }
+
+        async fn stop(&mut self) -> Result<(), FeatureError> {
+            Ok(())
+        }
+
+        async fn handle_message(&mut self, _message: FeatureMessage) -> Result<(), FeatureError> {
+            Ok(())
+        }
+    }
+
+    fn test_registry() -> FeatureRegistry {
+        let mut registry = FeatureRegistry::new();
+        registry.register(Box::new(EchoFeature)).unwrap();
+        registry
+    }
 
     #[tokio::test]
     async fn applies_intersection_feature_policy() {
@@ -92,5 +201,78 @@ mod tests {
         apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
 
         assert_eq!(peers.recipients_for(FeatureId::Clipboard).await, vec![peer]);
+    }
+
+    #[tokio::test]
+    async fn apply_self_updates_daemon_policy_from_server() {
+        let self_id = DeviceId::new();
+        let mut config = Config::new(self_id);
+        let config_path = std::env::temp_dir().join("failsafe-test-config.toml");
+        let mut device_name = config.device_name.clone();
+        let mut local_features = config.enabled_feature_set();
+        let mut registry = test_registry();
+
+        let devices = vec![DeviceInfo {
+            device_id: self_id,
+            name: "server-name".to_owned(),
+            iroh_public_key: "abc".to_owned(),
+            enabled_features: vec![],
+            last_seen: None,
+            online: true,
+        }];
+
+        let changed = apply_self_from_server(
+            self_id,
+            &devices,
+            &mut device_name,
+            &mut local_features,
+            &mut config,
+            &config_path,
+            &mut registry,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(changed);
+        assert_eq!(device_name, "server-name");
+        assert!(local_features.is_empty());
+        assert!(!registry.is_enabled(FeatureId::Clipboard));
+    }
+
+    #[tokio::test]
+    async fn apply_self_hot_reloads_new_features() {
+        let self_id = DeviceId::new();
+        let mut config = Config::new(self_id);
+        config.enabled_features = vec![];
+        let config_path = std::env::temp_dir().join("failsafe-test-config-hot.toml");
+        let mut device_name = config.device_name.clone();
+        let mut local_features = HashSet::new();
+        let mut registry = test_registry();
+
+        let devices = vec![DeviceInfo {
+            device_id: self_id,
+            name: "server-name".to_owned(),
+            iroh_public_key: "abc".to_owned(),
+            enabled_features: vec![FeatureId::Clipboard],
+            last_seen: None,
+            online: true,
+        }];
+
+        apply_self_from_server(
+            self_id,
+            &devices,
+            &mut device_name,
+            &mut local_features,
+            &mut config,
+            &config_path,
+            &mut registry,
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert!(registry.is_enabled(FeatureId::Clipboard));
+        assert!(local_features.contains(&FeatureId::Clipboard));
     }
 }

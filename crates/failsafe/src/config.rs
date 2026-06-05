@@ -22,10 +22,12 @@ fn default_clipboard_max_file_bytes() -> u64 {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub device_id: DeviceId,
+    /// Cached copy of the server-managed device name.
     #[serde(default = "default_device_name")]
     pub device_name: String,
     #[serde(default = "default_server_url")]
     pub server_url: String,
+    /// Cached copy of the server-managed enabled features.
     #[serde(default)]
     pub enabled_features: Vec<FeatureId>,
     #[serde(default)]
@@ -107,6 +109,23 @@ impl Config {
     }
 
     /// Apply a CLI/env override and persist when the value changes.
+    /// Update the local cache of server-managed device policy.
+    pub fn apply_server_policy(
+        &mut self,
+        name: &str,
+        features: &[FeatureId],
+        path: &Path,
+    ) -> Result<bool, DaemonError> {
+        let changed = self.device_name != name || self.enabled_features != features;
+        if changed {
+            self.device_name = name.to_owned();
+            self.enabled_features = features.to_vec();
+            self.save(path)?;
+        }
+        Ok(changed)
+    }
+
+    /// Apply a CLI/env override and persist when the value changes.
     pub fn apply_server_url_override(
         &mut self,
         path: &Path,
@@ -141,5 +160,29 @@ mod tests {
         assert_eq!(config.device_id, parsed.device_id);
         assert_eq!(config.enabled_features, parsed.enabled_features);
         assert_eq!(config.server_url, parsed.server_url);
+    }
+
+    #[test]
+    fn apply_server_policy_persists_server_managed_fields() {
+        let dir = std::env::temp_dir().join(format!(
+            "failsafe-config-test-{}",
+            DeviceId::new()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+
+        let mut config = Config::new(DeviceId::new());
+        config.save(&path).unwrap();
+
+        let changed = config
+            .apply_server_policy("renamed", &[], &path)
+            .unwrap();
+        assert!(changed);
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.device_name, "renamed");
+        assert!(loaded.enabled_features.is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

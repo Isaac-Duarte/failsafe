@@ -60,6 +60,11 @@ pub struct AccountResponse {
     pub email: String,
 }
 
+/// Create or update a device's transport registration.
+///
+/// On create, all fields are stored. On update, the server only applies
+/// `iroh_public_key` and `last_seen`; use [`DevicePatchRequest`] to change
+/// `name` or `enabled_features`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceUpsertRequest {
     pub device_id: DeviceId,
@@ -83,6 +88,7 @@ pub struct DeviceListResponse {
     pub devices: Vec<DeviceInfo>,
 }
 
+/// Update server-managed device policy (`name`, `enabled_features`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DevicePatchRequest {
     pub name: Option<String>,

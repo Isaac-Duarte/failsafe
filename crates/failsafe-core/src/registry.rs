@@ -41,6 +41,15 @@ impl FeatureRegistry {
         }
     }
 
+    pub async fn enable_and_start(&mut self, id: FeatureId) -> Result<(), FeatureError> {
+        self.enable(id)?;
+        let feature = self
+            .features
+            .get_mut(&id)
+            .expect("enabled feature must be registered");
+        feature.start().await
+    }
+
     pub fn is_enabled(&self, id: FeatureId) -> bool {
         self.enabled.contains(&id)
     }

@@ -5,7 +5,7 @@ use failsafe::DaemonError;
 use failsafe_core::api::DevicePatchRequest;
 
 use crate::cli::args::DevicesCommand;
-use crate::cli::context::server_client_from_config;
+use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};
 use crate::cli::util::{parse_device_id, parse_feature_list};
 
 pub async fn devices(
@@ -68,7 +68,7 @@ async fn devices_rename(
     id: &str,
     name: &str,
 ) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path, server_url).await?;
+    let client = server_client_from_config(config_path.clone(), server_url.clone()).await?;
     let device_id = parse_device_id(id)?;
 
     if name.trim().is_empty() {
@@ -86,6 +86,7 @@ async fn devices_rename(
         .await?;
 
     println!("Renamed device {device_id} to {name}");
+    print_local_device_sync_note(config_path, server_url, device_id);
     Ok(())
 }
 
@@ -124,7 +125,7 @@ async fn devices_features(
     id: &str,
     features: &str,
 ) -> Result<(), DaemonError> {
-    let client = server_client_from_config(config_path, server_url).await?;
+    let client = server_client_from_config(config_path.clone(), server_url.clone()).await?;
     let device_id = parse_device_id(id)?;
     let enabled_features = parse_feature_list(features)?;
 
@@ -148,5 +149,23 @@ async fn devices_features(
     } else {
         println!("Updated features for device {device_id}: {feature_list}");
     }
+    print_local_device_sync_note(config_path, server_url, device_id);
     Ok(())
+}
+
+fn print_local_device_sync_note(
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+    device_id: failsafe_core::device::DeviceId,
+) {
+    let Ok(path) = config_path_or_default(config_path) else {
+        return;
+    };
+    let Ok(local_config) = load_config(&path, server_url, false) else {
+        return;
+    };
+
+    if local_config.device_id == device_id {
+        println!("If this device is running, it will pick up the change on the next sync.");
+    }
 }

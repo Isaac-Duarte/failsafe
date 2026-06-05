@@ -469,6 +469,91 @@ async fn delete_hides_device_and_blocks_upsert() {
 }
 
 #[tokio::test]
+async fn upsert_update_ignores_features_on_existing_device() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DevicePatchRequest {
+                        name: None,
+                        enabled_features: Some(vec![]),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "updated-key".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let list_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let DeviceListResponse { devices } = body_json(list_response.into_body()).await;
+    assert_eq!(devices.len(), 1);
+    assert!(devices[0].enabled_features.is_empty());
+    assert_eq!(devices[0].iroh_public_key, "updated-key");
+}
+
+#[tokio::test]
 async fn heartbeat_does_not_revert_patched_name() {
     let app = test_app().await;
     let token = register_and_get_token(&app).await;

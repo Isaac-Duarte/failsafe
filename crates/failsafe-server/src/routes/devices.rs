@@ -71,9 +71,10 @@ async fn upsert_device(
             return Err(ServerError::ForbiddenMessage("device removed".to_owned()));
         }
 
+        // Policy fields (name, enabled_features) are server-authoritative and only
+        // change via PATCH. PUT updates transport state for existing devices.
         let mut active: device::ActiveModel = existing.into();
         active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
-        active.enabled_features = Set(features_to_json(&request.enabled_features)?);
         active.last_seen = Set(Some(Utc::now()));
         let updated = active.update(&state.db).await?;
         return Ok(Json(model_to_info(updated)?));

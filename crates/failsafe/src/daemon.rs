@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use tracing::info;
 use crate::config::Config;
 use crate::error::DaemonError;
 use crate::server::ServerClient;
-use crate::sync::apply_server_devices;
+use crate::sync::{apply_self_from_server, apply_server_devices};
 
 pub struct TransportBundle {
     pub transport: Arc<dyn Transport>,
@@ -37,6 +38,8 @@ pub struct Daemon {
     local_features: HashSet<FeatureId>,
     device_name: String,
     iroh_public_key: Option<String>,
+    config_path: Option<PathBuf>,
+    config: Option<Config>,
 }
 
 pub struct DaemonBuilder {
@@ -127,12 +130,13 @@ impl DaemonBuilder {
         let publisher = MessageRouter::into_publisher(transport.clone(), self.peers.clone());
         let mut registry = FeatureRegistry::new();
 
+        registry.register(Box::new(ClipboardFeature::new_with_limits(
+            publisher,
+            self.blob_transfer.clone(),
+            self.clipboard_limits,
+        )))?;
+
         if self.enabled_features.contains(&FeatureId::Clipboard) {
-            registry.register(Box::new(ClipboardFeature::new_with_limits(
-                publisher,
-                self.blob_transfer.clone(),
-                self.clipboard_limits,
-            )))?;
             registry.enable(FeatureId::Clipboard)?;
         }
 
@@ -145,6 +149,8 @@ impl DaemonBuilder {
             local_features: self.enabled_features,
             device_name: self.device_name,
             iroh_public_key: self.iroh_public_key,
+            config_path: None,
+            config: None,
         })
     }
 }
@@ -161,7 +167,8 @@ impl Daemon {
     }
 
     pub fn from_config(
-        config: &Config,
+        config_path: PathBuf,
+        config: Config,
         bundle: TransportBundle,
         peers: Arc<PeerDirectory>,
         server_client: Option<ServerClient>,
@@ -180,7 +187,10 @@ impl Daemon {
             builder = builder.server_client(client);
         }
 
-        builder.build()
+        let mut daemon = builder.build()?;
+        daemon.config_path = Some(config_path);
+        daemon.config = Some(config);
+        Ok(daemon)
     }
 
     pub fn device_id(&self) -> DeviceId {
@@ -191,7 +201,7 @@ impl Daemon {
         &self.peers
     }
 
-    pub async fn register_with_server(&self) -> Result<(), DaemonError> {
+    pub async fn register_transport_with_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config("credentials are required; pair this device first".to_owned())
         })?;
@@ -201,6 +211,8 @@ impl Daemon {
             .clone()
             .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
 
+        // Name and features are included for first-time device creation only.
+        // The server ignores them on subsequent transport updates.
         client
             .upsert_device(DeviceUpsertRequest {
                 device_id: self.device_id(),
@@ -219,14 +231,31 @@ impl Daemon {
         client.heartbeat_device(self.device_id()).await
     }
 
-    pub async fn sync_from_server(&self) -> Result<(), DaemonError> {
+    pub async fn sync_from_server(&mut self, start_new_features: bool) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config("credentials are required; pair this device first".to_owned())
         })?;
 
         let response = client.list_devices().await?;
+        let self_id = self.device_id();
+        let config_path = self.config_path.clone();
+
+        if let (Some(config_path), Some(config)) = (config_path.as_ref(), self.config.as_mut()) {
+            apply_self_from_server(
+                self_id,
+                &response.devices,
+                &mut self.device_name,
+                &mut self.local_features,
+                config,
+                config_path,
+                &mut self.registry,
+                start_new_features,
+            )
+            .await?;
+        }
+
         apply_server_devices(
-            self.device_id(),
+            self_id,
             &self.local_features,
             &response.devices,
             &self.peers,
@@ -246,8 +275,9 @@ impl Daemon {
 
         info!(device_id = %self.device_id(), "starting daemon");
 
-        self.register_with_server().await?;
-        self.sync_from_server().await?;
+        self.sync_from_server(false).await?;
+        self.register_transport_with_server().await?;
+        self.sync_from_server(false).await?;
 
         self.registry.start_enabled().await?;
 
@@ -267,7 +297,7 @@ impl Daemon {
                         }
                         tracing::warn!("server heartbeat failed: {error}");
                     }
-                    if let Err(error) = self.sync_from_server().await {
+                    if let Err(error) = self.sync_from_server(true).await {
                         tracing::warn!("server sync failed: {error}");
                     }
                 }
@@ -370,11 +400,19 @@ mod tests {
     #[tokio::test]
     async fn builds_from_config() {
         let config = Config::new(DeviceId::new());
+        let device_id = config.device_id;
         let bundle = create_test_transport_bundle(&config, MockNetwork::new()).await;
         let peers = Arc::new(PeerDirectory::new());
 
-        let daemon = Daemon::from_config(&config, bundle, peers, None).unwrap();
-        assert_eq!(daemon.device_id(), config.device_id);
+        let daemon = Daemon::from_config(
+            Config::default_path().unwrap(),
+            config,
+            bundle,
+            peers,
+            None,
+        )
+        .unwrap();
+        assert_eq!(daemon.device_id(), device_id);
     }
 
     #[tokio::test]
