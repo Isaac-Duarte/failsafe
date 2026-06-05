@@ -13,7 +13,7 @@ clap.workspace = true
 dirs.workspace = true
 failsafe-clipboard.workspace = true
 failsafe-core.workspace = true
-failsafe-transport.workspace = true
+failsafe-transport = { workspace = true, features = ["iroh"] }
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }

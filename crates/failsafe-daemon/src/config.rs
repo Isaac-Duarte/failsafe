@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_core::peer_address::PeerAddressBook;
 use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
@@ -29,6 +30,8 @@ pub struct Config {
     pub enabled_features: Vec<FeatureId>,
     #[serde(default)]
     pub transport: TransportKind,
+    #[serde(default)]
+    pub peer_addresses: HashMap<DeviceId, String>,
 }
 
 impl Config {
@@ -38,7 +41,16 @@ impl Config {
             peers: Vec::new(),
             enabled_features: vec![FeatureId::Clipboard],
             transport: TransportKind::Mock,
+            peer_addresses: HashMap::new(),
         }
+    }
+
+    pub fn peer_address_book(&self) -> PeerAddressBook {
+        PeerAddressBook::from_map(self.peer_addresses.clone())
+    }
+
+    pub fn default_secret_key_path() -> Option<PathBuf> {
+        dirs::config_dir().map(|dir| dir.join("failsafe").join("iroh.key"))
     }
 
     pub fn default_path() -> Option<PathBuf> {

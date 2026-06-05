@@ -3,11 +3,21 @@ name = "failsafe-transport"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+iroh = ["dep:iroh", "dep:bytes", "dep:rand", "dep:tracing"]
+
 [dependencies]
 async-trait.workspace = true
+bytes = { workspace = true, optional = true }
 failsafe-core.workspace = true
+iroh = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }

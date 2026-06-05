@@ -153,7 +153,20 @@ pub async fn create_transport(
             Ok(Arc::new(transport))
         }
         crate::config::TransportKind::Iroh => {
-            Err(DaemonError::TransportUnavailable("iroh".to_owned()))
+            let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
+                DaemonError::Config("could not determine iroh secret key path".to_owned())
+            })?;
+
+            let transport = failsafe_transport::iroh::IrohTransport::start(
+                failsafe_transport::iroh::IrohConfig {
+                    device_id: config.device_id,
+                    secret_key_path,
+                    address_book: config.peer_address_book(),
+                },
+            )
+            .await?;
+
+            Ok(Arc::new(transport))
         }
     }
 }

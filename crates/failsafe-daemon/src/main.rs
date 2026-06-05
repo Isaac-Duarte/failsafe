@@ -47,10 +47,13 @@ async fn run(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
     let path = config_path_or_default(config_path)?;
     let config = Config::load_or_create(&path)?;
 
-    if config.transport == failsafe_daemon::config::TransportKind::Mock {
-        info!(
-            "mock transport is in-memory only; multi-process sync requires iroh (not implemented yet)"
-        );
+    match config.transport {
+        failsafe_daemon::config::TransportKind::Mock => {
+            info!("mock transport is in-memory only; use transport = \"iroh\" for real devices");
+        }
+        failsafe_daemon::config::TransportKind::Iroh => {
+            info!("using iroh transport; share your iroh public key with peers for peer_addresses");
+        }
     }
 
     let peers = Arc::new(PeerDirectory::new());
@@ -82,6 +85,10 @@ fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
     println!("peers: {}", config.peers.len());
     for peer in &config.peers {
         println!("  - {peer}");
+    }
+    println!("peer_addresses: {}", config.peer_addresses.len());
+    for (peer, address) in &config.peer_addresses {
+        println!("  - {peer} = {address}");
     }
     println!("enabled_features:");
     for feature in &config.enabled_features {

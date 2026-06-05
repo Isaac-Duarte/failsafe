@@ -9,6 +9,9 @@ pub enum TransportError {
 
     #[error("transport disconnected")]
     Disconnected,
+
+    #[error("transport codec error: {0}")]
+    Codec(String),
 }
 
 /// Device-to-device message delivery.
