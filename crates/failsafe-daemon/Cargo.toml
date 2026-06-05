@@ -1,6 +1,9 @@
 [package]
 name = "failsafe-daemon"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
+failsafe-clipboard.workspace = true
+failsafe-core.workspace = true
+failsafe-transport.workspace = true
