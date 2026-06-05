@@ -96,6 +96,13 @@ export function DevicesPage() {
   }, [loadDevices])
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadDevices()
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [loadDevices])
+
+  useEffect(() => {
     if (!pairing) {
       return
     }
@@ -281,6 +288,7 @@ export function DevicesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Device ID</TableHead>
                   <TableHead>Features</TableHead>
                   <TableHead>Last seen</TableHead>
@@ -291,6 +299,21 @@ export function DevicesPage() {
                 {devices.map((device) => (
                   <TableRow key={device.device_id}>
                     <TableCell className="font-medium">{device.name}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={device.online ? "default" : "secondary"}
+                        className={
+                          device.online
+                            ? "gap-1.5 bg-emerald-600 text-white hover:bg-emerald-600/90"
+                            : "gap-1.5 text-muted-foreground"
+                        }
+                      >
+                        <span
+                          className={`size-1.5 rounded-full ${device.online ? "bg-white" : "bg-muted-foreground"}`}
+                        />
+                        {device.online ? "Online" : "Offline"}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="font-mono text-xs">
                       {device.device_id}
                     </TableCell>

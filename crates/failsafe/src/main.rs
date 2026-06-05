@@ -430,8 +430,8 @@ async fn devices_list(
     }
 
     println!(
-        "{:<20} {:<38} {:<20} {}",
-        "NAME", "DEVICE ID", "FEATURES", "LAST SEEN"
+        "{:<20} {:<38} {:<12} {:<20} {}",
+        "NAME", "DEVICE ID", "STATUS", "FEATURES", "LAST SEEN"
     );
     for device in response.devices {
         let features = device
@@ -440,10 +440,11 @@ async fn devices_list(
             .map(|f| f.to_string())
             .collect::<Vec<_>>()
             .join(",");
+        let status = if device.online { "online" } else { "offline" };
         let last_seen = device.last_seen.unwrap_or_else(|| "—".to_owned());
         println!(
-            "{:<20} {:<38} {:<20} {}",
-            device.name, device.device_id, features, last_seen
+            "{:<20} {:<38} {:<12} {:<20} {}",
+            device.name, device.device_id, status, features, last_seen
         );
     }
 

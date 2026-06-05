@@ -1,5 +1,5 @@
 use axum::extract::{Path, State};
-use axum::routing::{delete, get, patch, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Extension, Json, Router};
 use chrono::Utc;
 use failsafe_core::api::{
@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::entity::{Device, device};
 use crate::error::{ServerError, ServerResult};
+use crate::presence;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -20,6 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/{device_id}", put(upsert_device))
         .route("/{device_id}", patch(patch_device))
         .route("/{device_id}", delete(delete_device))
+        .route("/{device_id}/heartbeat", post(heartbeat_device))
 }
 
 async fn list_devices(
@@ -112,18 +114,7 @@ async fn patch_device(
         }
     }
 
-    let existing = Device::find_by_id(device_id)
-        .one(&state.db)
-        .await?
-        .ok_or(ServerError::NotFound)?;
-
-    if existing.account_id != account_id.0 {
-        return Err(ServerError::Forbidden);
-    }
-
-    if existing.deleted_at.is_some() {
-        return Err(ServerError::NotFound);
-    }
+    let existing = load_active_device(device_id, account_id, &state).await?;
 
     let mut active: device::ActiveModel = existing.into();
 
@@ -164,6 +155,39 @@ async fn delete_device(
     Ok(())
 }
 
+async fn heartbeat_device(
+    State(state): State<AppState>,
+    Extension(account_id): Extension<AccountId>,
+    Path(device_id): Path<Uuid>,
+) -> ServerResult<Json<DeviceInfo>> {
+    let existing = load_active_device(device_id, account_id, &state).await?;
+    let mut active: device::ActiveModel = existing.into();
+    active.last_seen = Set(Some(Utc::now()));
+    let updated = active.update(&state.db).await?;
+    Ok(Json(model_to_info(updated)?))
+}
+
+async fn load_active_device(
+    device_id: Uuid,
+    account_id: AccountId,
+    state: &AppState,
+) -> ServerResult<device::Model> {
+    let existing = Device::find_by_id(device_id)
+        .one(&state.db)
+        .await?
+        .ok_or(ServerError::NotFound)?;
+
+    if existing.account_id != account_id.0 {
+        return Err(ServerError::Forbidden);
+    }
+
+    if existing.deleted_at.is_some() {
+        return Err(ServerError::NotFound);
+    }
+
+    Ok(existing)
+}
+
 fn model_to_info(model: device::Model) -> ServerResult<DeviceInfo> {
     let enabled_features: Vec<FeatureId> = serde_json::from_value(model.enabled_features)
         .map_err(|error| ServerError::Internal(format!("invalid feature data: {error}")))?;
@@ -174,6 +198,7 @@ fn model_to_info(model: device::Model) -> ServerResult<DeviceInfo> {
         iroh_public_key: model.iroh_public_key,
         enabled_features,
         last_seen: model.last_seen.map(|ts| ts.to_rfc3339()),
+        online: presence::is_online(model.last_seen),
     })
 }
 

@@ -187,6 +187,14 @@ impl Daemon {
             .await
     }
 
+    pub async fn heartbeat_with_server(&self) -> Result<(), DaemonError> {
+        let client = self.server_client.as_ref().ok_or_else(|| {
+            DaemonError::Config("credentials are required; pair this device first".to_owned())
+        })?;
+
+        client.heartbeat_device(self.device_id()).await
+    }
+
     pub async fn sync_from_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config("credentials are required; pair this device first".to_owned())
@@ -229,6 +237,12 @@ impl Daemon {
                     self.registry.dispatch(message).await?;
                 }
                 _ = sync_interval.tick() => {
+                    if let Err(error) = self.heartbeat_with_server().await {
+                        if matches!(error, DaemonError::DeviceRemoved) {
+                            return Err(error);
+                        }
+                        tracing::warn!("server heartbeat failed: {error}");
+                    }
                     if let Err(error) = self.sync_from_server().await {
                         tracing::warn!("server sync failed: {error}");
                     }

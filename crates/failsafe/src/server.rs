@@ -105,25 +105,23 @@ impl ServerClient {
             .await
             .map_err(|error| DaemonError::Config(format!("device upsert failed: {error}")))?;
 
-        if response.status() == reqwest::StatusCode::FORBIDDEN {
-            let body = response.text().await.unwrap_or_default();
-            if body.contains("device removed") {
-                return Err(DaemonError::DeviceRemoved);
-            }
-            return Err(DaemonError::Config(format!(
-                "device upsert returned 403: {body}"
-            )));
-        }
+        map_device_mutation_response(response, "device upsert").await
+    }
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(DaemonError::Config(format!(
-                "device upsert returned {status}: {body}"
-            )));
-        }
+    pub async fn heartbeat_device(&self, device_id: DeviceId) -> Result<(), DaemonError> {
+        let url = format!(
+            "{}/api/v1/devices/{}/heartbeat",
+            self.base_url, device_id
+        );
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("device heartbeat failed: {error}")))?;
 
-        Ok(())
+        map_device_mutation_response(response, "device heartbeat").await
     }
 
     pub async fn patch_device(
@@ -177,6 +175,31 @@ impl ServerClient {
 
         parse_json_response(response).await
     }
+}
+
+async fn map_device_mutation_response(
+    response: reqwest::Response,
+    action: &str,
+) -> Result<(), DaemonError> {
+    if response.status() == reqwest::StatusCode::FORBIDDEN {
+        let body = response.text().await.unwrap_or_default();
+        if body.contains("device removed") {
+            return Err(DaemonError::DeviceRemoved);
+        }
+        return Err(DaemonError::Config(format!(
+            "{action} returned 403: {body}"
+        )));
+    }
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(DaemonError::Config(format!(
+            "{action} returned {status}: {body}"
+        )));
+    }
+
+    Ok(())
 }
 
 async fn parse_json_response<T: serde::de::DeserializeOwned>(

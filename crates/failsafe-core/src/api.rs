@@ -70,6 +70,7 @@ pub struct DeviceInfo {
     pub iroh_public_key: String,
     pub enabled_features: Vec<FeatureId>,
     pub last_seen: Option<String>,
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

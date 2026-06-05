@@ -63,6 +63,7 @@ mod tests {
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![],
             last_seen: None,
+            online: false,
         }];
 
         apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
@@ -85,6 +86,7 @@ mod tests {
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![FeatureId::Clipboard],
             last_seen: None,
+            online: false,
         }];
 
         apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;

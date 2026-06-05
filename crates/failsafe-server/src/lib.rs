@@ -3,6 +3,7 @@ mod tests;
 
 pub mod auth;
 pub mod config;
+pub mod presence;
 pub mod entity;
 pub mod error;
 pub mod middleware;

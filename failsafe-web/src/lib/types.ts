@@ -18,6 +18,7 @@ export interface DeviceInfo {
   iroh_public_key: string
   enabled_features: string[]
   last_seen: string | null
+  online: boolean
 }
 
 export interface DeviceListResponse {
