@@ -1,5 +1,6 @@
 use std::fmt;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::message::FeatureMessage;
@@ -35,12 +36,13 @@ pub enum FeatureError {
 }
 
 /// A pluggable sync capability that can be enabled per device.
+#[async_trait]
 pub trait Feature: Send + Sync {
     fn id(&self) -> FeatureId;
 
-    fn start(&mut self) -> Result<(), FeatureError>;
+    async fn start(&mut self) -> Result<(), FeatureError>;
 
-    fn stop(&mut self) -> Result<(), FeatureError>;
+    async fn stop(&mut self) -> Result<(), FeatureError>;
 
-    fn handle_message(&mut self, message: FeatureMessage) -> Result<(), FeatureError>;
+    async fn handle_message(&mut self, message: FeatureMessage) -> Result<(), FeatureError>;
 }

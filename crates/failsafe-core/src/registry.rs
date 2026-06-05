@@ -34,10 +34,10 @@ impl FeatureRegistry {
         Ok(())
     }
 
-    pub fn disable(&mut self, id: FeatureId) {
+    pub async fn disable(&mut self, id: FeatureId) {
         self.enabled.remove(&id);
         if let Some(feature) = self.features.get_mut(&id) {
-            let _ = feature.stop();
+            let _ = feature.stop().await;
         }
     }
 
@@ -49,18 +49,18 @@ impl FeatureRegistry {
         self.enabled.iter().copied()
     }
 
-    pub fn start_enabled(&mut self) -> Result<(), FeatureError> {
+    pub async fn start_enabled(&mut self) -> Result<(), FeatureError> {
         for id in self.enabled.clone() {
             let feature = self
                 .features
                 .get_mut(&id)
                 .expect("enabled feature must be registered");
-            feature.start()?;
+            feature.start().await?;
         }
         Ok(())
     }
 
-    pub fn dispatch(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
+    pub async fn dispatch(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
         let id = message.feature;
         if !self.is_enabled(id) {
             return Err(FeatureError::NotEnabled(id));
@@ -69,7 +69,7 @@ impl FeatureRegistry {
             .features
             .get_mut(&id)
             .ok_or(FeatureError::NotRegistered(id))?;
-        feature.handle_message(message)
+        feature.handle_message(message).await
     }
 }
 
@@ -81,6 +81,8 @@ impl Default for FeatureRegistry {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+
     use super::*;
     use crate::device::DeviceId;
 
@@ -96,27 +98,28 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl Feature for EchoFeature {
         fn id(&self) -> FeatureId {
             FeatureId::Clipboard
         }
 
-        fn start(&mut self) -> Result<(), FeatureError> {
+        async fn start(&mut self) -> Result<(), FeatureError> {
             Ok(())
         }
 
-        fn stop(&mut self) -> Result<(), FeatureError> {
+        async fn stop(&mut self) -> Result<(), FeatureError> {
             Ok(())
         }
 
-        fn handle_message(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
+        async fn handle_message(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
             self.last_payload = Some(message.payload);
             Ok(())
         }
     }
 
-    #[test]
-    fn register_enable_and_dispatch() {
+    #[tokio::test]
+    async fn register_enable_and_dispatch() {
         let mut registry = FeatureRegistry::new();
         let feature = Box::new(EchoFeature::new());
         registry.register(feature).unwrap();
@@ -131,11 +134,12 @@ mod tests {
                 FeatureId::Clipboard,
                 b"hello",
             ))
+            .await
             .unwrap();
     }
 
-    #[test]
-    fn dispatch_rejects_disabled_feature() {
+    #[tokio::test]
+    async fn dispatch_rejects_disabled_feature() {
         let mut registry = FeatureRegistry::new();
         registry.register(Box::new(EchoFeature::new())).unwrap();
 
@@ -146,6 +150,7 @@ mod tests {
                 FeatureId::Clipboard,
                 b"hello",
             ))
+            .await
             .unwrap_err();
 
         assert!(matches!(err, FeatureError::NotEnabled(FeatureId::Clipboard)));
