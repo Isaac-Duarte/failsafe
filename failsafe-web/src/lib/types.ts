@@ -24,6 +24,11 @@ export interface DeviceListResponse {
   devices: DeviceInfo[]
 }
 
+export interface DevicePatchRequest {
+  name?: string
+  enabled_features?: string[]
+}
+
 export interface PairingCreateResponse {
   code: string
   expires_at: string

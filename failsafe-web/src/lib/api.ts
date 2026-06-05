@@ -4,7 +4,9 @@ import type {
   AuthLoginRequest,
   AuthRegisterRequest,
   AuthResponse,
+  DeviceInfo,
   DeviceListResponse,
+  DevicePatchRequest,
   PairingCreateResponse,
 } from "@/lib/types"
 
@@ -54,6 +56,31 @@ export async function listDevices(): Promise<DeviceListResponse> {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   })
   return parseResponse(response)
+}
+
+export async function updateDevice(
+  deviceId: string,
+  patch: DevicePatchRequest,
+): Promise<DeviceInfo> {
+  const token = getToken()
+  const response = await fetch(`/api/v1/devices/${deviceId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(patch),
+  })
+  return parseResponse(response)
+}
+
+export async function deleteDevice(deviceId: string): Promise<void> {
+  const token = getToken()
+  const response = await fetch(`/api/v1/devices/${deviceId}`, {
+    method: "DELETE",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+  await parseResponse(response)
 }
 
 export async function createPairingCode(): Promise<PairingCreateResponse> {

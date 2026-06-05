@@ -11,6 +11,7 @@ pub struct Model {
     pub enabled_features: Json,
     pub last_seen: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
+    pub deleted_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

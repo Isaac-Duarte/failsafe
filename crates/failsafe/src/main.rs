@@ -6,7 +6,12 @@ use failsafe::{
     Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle,
     register_local_device,
 };
+use failsafe_core::api::DevicePatchRequest;
+use failsafe_core::device::DeviceId;
+use failsafe_core::feature::FeatureId;
 use failsafe_core::peer::PeerDirectory;
+use std::io::{self, IsTerminal, Write};
+use std::str::FromStr;
 use tracing::info;
 
 #[derive(Parser)]
@@ -66,6 +71,57 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Manage registered devices on the server.
+    Devices {
+        #[command(subcommand)]
+        command: DevicesCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum DevicesCommand {
+    /// List devices linked to your account.
+    List {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Rename a device.
+    Rename {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device ID to rename.
+        #[arg(long)]
+        id: String,
+        /// New device name.
+        #[arg(long)]
+        name: String,
+    },
+    /// Remove a device from your account.
+    Remove {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device ID to remove.
+        #[arg(long)]
+        id: String,
+        /// Skip confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Set which features a device can sync with others.
+    Features {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device ID to update.
+        #[arg(long)]
+        id: String,
+        /// Comma-separated feature list (e.g. clipboard).
+        #[arg(long)]
+        features: String,
+    },
 }
 
 #[tokio::main]
@@ -92,6 +148,7 @@ async fn main() -> Result<(), DaemonError> {
         } => authenticate(config, email, password, false).await,
         Command::Pair { config, code, name } => pair(config, code, name).await,
         Command::Status { config } => status(config),
+        Command::Devices { command } => devices(command).await,
     }
 }
 
@@ -280,6 +337,166 @@ fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
         println!("  - {feature}");
     }
 
+    Ok(())
+}
+
+async fn devices(command: DevicesCommand) -> Result<(), DaemonError> {
+    match command {
+        DevicesCommand::List { config } => devices_list(config).await,
+        DevicesCommand::Rename { config, id, name } => {
+            devices_rename(config, &id, &name).await
+        }
+        DevicesCommand::Remove { config, id, yes } => devices_remove(config, &id, yes).await,
+        DevicesCommand::Features {
+            config,
+            id,
+            features,
+        } => devices_features(config, &id, &features).await,
+    }
+}
+
+async fn server_client_from_config(config_path: Option<PathBuf>) -> Result<ServerClient, DaemonError> {
+    let path = config_path_or_default(config_path)?;
+    let config = Config::load_or_create(&path)?;
+    let credentials = Credentials::load_or_error()?;
+    Ok(ServerClient::new(
+        config.server_url.clone(),
+        credentials.auth_token,
+    ))
+}
+
+fn parse_device_id(id: &str) -> Result<DeviceId, DaemonError> {
+    DeviceId::from_str(id.trim()).map_err(|error| {
+        DaemonError::Config(format!("invalid device id `{id}`: {error}"))
+    })
+}
+
+fn parse_feature_list(features: &str) -> Result<Vec<FeatureId>, DaemonError> {
+    if features.trim().is_empty() {
+        return Ok(vec![]);
+    }
+
+    features
+        .split(',')
+        .map(|part| {
+            FeatureId::from_str(part.trim()).map_err(|error| {
+                DaemonError::Config(format!("unknown feature `{}`: {error}", part.trim()))
+            })
+        })
+        .collect()
+}
+
+async fn devices_list(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
+    let client = server_client_from_config(config_path).await?;
+    let response = client.list_devices().await?;
+
+    if response.devices.is_empty() {
+        println!("No devices registered.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<20} {:<38} {:<20} {}",
+        "NAME", "DEVICE ID", "FEATURES", "LAST SEEN"
+    );
+    for device in response.devices {
+        let features = device
+            .enabled_features
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let last_seen = device.last_seen.unwrap_or_else(|| "—".to_owned());
+        println!(
+            "{:<20} {:<38} {:<20} {}",
+            device.name, device.device_id, features, last_seen
+        );
+    }
+
+    Ok(())
+}
+
+async fn devices_rename(
+    config_path: Option<PathBuf>,
+    id: &str,
+    name: &str,
+) -> Result<(), DaemonError> {
+    let client = server_client_from_config(config_path).await?;
+    let device_id = parse_device_id(id)?;
+
+    if name.trim().is_empty() {
+        return Err(DaemonError::Config("name cannot be empty".to_owned()));
+    }
+
+    client
+        .patch_device(
+            device_id,
+            DevicePatchRequest {
+                name: Some(name.trim().to_owned()),
+                enabled_features: None,
+            },
+        )
+        .await?;
+
+    println!("Renamed device {device_id} to {name}");
+    Ok(())
+}
+
+async fn devices_remove(
+    config_path: Option<PathBuf>,
+    id: &str,
+    skip_confirm: bool,
+) -> Result<(), DaemonError> {
+    let client = server_client_from_config(config_path).await?;
+    let device_id = parse_device_id(id)?;
+
+    if !skip_confirm && io::stdin().is_terminal() {
+        print!("Remove device {device_id}? This cannot be undone without re-pairing. [y/N] ");
+        io::stdout().flush().map_err(DaemonError::Io)?;
+
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer).map_err(DaemonError::Io)?;
+        let answer = answer.trim().to_ascii_lowercase();
+        if answer != "y" && answer != "yes" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    client.delete_device(device_id).await?;
+    println!("Removed device {device_id}");
+    Ok(())
+}
+
+async fn devices_features(
+    config_path: Option<PathBuf>,
+    id: &str,
+    features: &str,
+) -> Result<(), DaemonError> {
+    let client = server_client_from_config(config_path).await?;
+    let device_id = parse_device_id(id)?;
+    let enabled_features = parse_feature_list(features)?;
+
+    client
+        .patch_device(
+            device_id,
+            DevicePatchRequest {
+                name: None,
+                enabled_features: Some(enabled_features.clone()),
+            },
+        )
+        .await?;
+
+    let feature_list = enabled_features
+        .iter()
+        .map(|f| f.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if feature_list.is_empty() {
+        println!("Cleared features for device {device_id}");
+    } else {
+        println!("Updated features for device {device_id}: {feature_list}");
+    }
     Ok(())
 }
 

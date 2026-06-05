@@ -1,7 +1,8 @@
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse, DeviceUpsertRequest,
-    PairingCreateResponse, PairingRedeemRequest,
+    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse,
+    DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
 };
+use failsafe_core::device::DeviceId;
 
 use crate::error::DaemonError;
 
@@ -104,11 +105,60 @@ impl ServerClient {
             .await
             .map_err(|error| DaemonError::Config(format!("device upsert failed: {error}")))?;
 
+        if response.status() == reqwest::StatusCode::FORBIDDEN {
+            let body = response.text().await.unwrap_or_default();
+            if body.contains("device removed") {
+                return Err(DaemonError::DeviceRemoved);
+            }
+            return Err(DaemonError::Config(format!(
+                "device upsert returned 403: {body}"
+            )));
+        }
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(DaemonError::Config(format!(
                 "device upsert returned {status}: {body}"
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub async fn patch_device(
+        &self,
+        device_id: DeviceId,
+        request: DevicePatchRequest,
+    ) -> Result<DeviceInfo, DaemonError> {
+        let url = format!("{}/api/v1/devices/{}", self.base_url, device_id);
+        let response = self
+            .http
+            .patch(url)
+            .bearer_auth(&self.auth_token)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("device patch failed: {error}")))?;
+
+        parse_json_response(response).await
+    }
+
+    pub async fn delete_device(&self, device_id: DeviceId) -> Result<(), DaemonError> {
+        let url = format!("{}/api/v1/devices/{}", self.base_url, device_id);
+        let response = self
+            .http
+            .delete(url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("device delete failed: {error}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(DaemonError::Config(format!(
+                "device delete returned {status}: {body}"
             )));
         }
 

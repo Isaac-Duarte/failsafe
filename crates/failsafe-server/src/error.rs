@@ -20,6 +20,9 @@ pub enum ServerError {
     #[error("forbidden")]
     Forbidden,
 
+    #[error("forbidden: {0}")]
+    ForbiddenMessage(String),
+
     #[error(transparent)]
     Database(#[from] sea_orm::DbErr),
 
@@ -62,7 +65,9 @@ impl IntoResponse for ServerError {
             ServerError::Conflict(message) => (StatusCode::CONFLICT, message.clone()),
             ServerError::BadRequest(message) => (StatusCode::BAD_REQUEST, message.clone()),
             ServerError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
-            ServerError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            ServerError::Forbidden | ServerError::ForbiddenMessage(_) => {
+                (StatusCode::FORBIDDEN, self.to_string())
+            }
             ServerError::Database(_) | ServerError::Auth(_) | ServerError::Internal(_) => {
                 tracing::error!("{self}");
                 (

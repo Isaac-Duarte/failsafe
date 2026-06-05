@@ -136,6 +136,30 @@ Optionally set a device name when pairing:
 failsafe pair --code A3K9Z1 --name laptop
 ```
 
+### Managing devices
+
+Rename, remove, or toggle features from the **web UI** (Devices page) or the **CLI**.
+
+**Web UI:** click Edit or Remove on any registered device. Feature toggles control which capabilities that device can sync with others.
+
+**CLI:**
+
+```bash
+# list all devices
+failsafe devices list
+
+# rename a device
+failsafe devices rename --id <DEVICE_ID> --name laptop
+
+# set sync features (comma-separated)
+failsafe devices features --id <DEVICE_ID> --features clipboard
+
+# remove a device
+failsafe devices remove --id <DEVICE_ID>
+```
+
+Removed devices cannot re-register automatically. Stop the daemon on that machine, then run `failsafe pair --code <CODE>` to add it again.
+
 ## Web UI development
 
 For frontend hot reload without rebuilding Rust:

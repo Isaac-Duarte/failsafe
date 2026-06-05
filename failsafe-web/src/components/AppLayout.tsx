@@ -21,10 +21,10 @@ export function AppLayout() {
       <header className="flex items-center justify-between gap-4 px-6 py-4">
         <Link
           to={homeHref}
-          className="flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
+          className="flex items-center gap-3 text-foreground transition-opacity hover:opacity-80"
         >
-          <img src="/failsafe-logo.svg" alt="" className="size-8" />
-          <span className="text-sm font-semibold tracking-tight">Failsafe</span>
+          <img src="/failsafe-logo.svg" alt="" className="size-10" />
+          <span className="text-base font-semibold tracking-tight">Failsafe</span>
         </Link>
         <div className="flex items-center gap-1">
           {authenticated ? (

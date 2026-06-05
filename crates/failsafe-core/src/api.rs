@@ -78,6 +78,12 @@ pub struct DeviceListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DevicePatchRequest {
+    pub name: Option<String>,
+    pub enabled_features: Option<Vec<FeatureId>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PairingCreateResponse {
     pub code: String,
     pub expires_at: String,

@@ -17,4 +17,7 @@ pub enum DaemonError {
 
     #[error("transport `{0}` is not available yet")]
     TransportUnavailable(String),
+
+    #[error("this device was removed from your account; run `failsafe pair --code <CODE>` to re-add it")]
+    DeviceRemoved,
 }

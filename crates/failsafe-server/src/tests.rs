@@ -1,7 +1,7 @@
 use axum::body::Body;
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse, DeviceUpsertRequest,
-    PairingCreateResponse, PairingRedeemRequest,
+    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse,
+    DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -224,6 +224,255 @@ async fn pairing_code_can_be_redeemed_once() {
         redeem_again_response.status(),
         axum::http::StatusCode::BAD_REQUEST
     );
+}
+
+async fn register_and_get_token(app: &axum::Router) -> String {
+    let register_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: format!("user-{}@example.com", uuid::Uuid::new_v4()),
+                        password: "hunter2".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(register_response.status(), axum::http::StatusCode::OK);
+    let AuthResponse { token } = body_json(register_response.into_body()).await;
+    token
+}
+
+#[tokio::test]
+async fn patch_rename_and_features() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let patch_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DevicePatchRequest {
+                        name: Some("work-laptop".to_owned()),
+                        enabled_features: Some(vec![]),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_response.status(), axum::http::StatusCode::OK);
+    let DeviceInfo {
+        name,
+        enabled_features,
+        ..
+    } = body_json(patch_response.into_body()).await;
+    assert_eq!(name, "work-laptop");
+    assert!(enabled_features.is_empty());
+}
+
+#[tokio::test]
+async fn delete_hides_device_and_blocks_upsert() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(delete_response.status(), axum::http::StatusCode::OK);
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let DeviceListResponse { devices } = body_json(list_response.into_body()).await;
+    assert!(devices.is_empty());
+
+    let upsert_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(upsert_response.status(), axum::http::StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn heartbeat_does_not_revert_patched_name() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DevicePatchRequest {
+                        name: Some("renamed".to_owned()),
+                        enabled_features: None,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "updated-key".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let list_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let DeviceListResponse { devices } = body_json(list_response.into_body()).await;
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].name, "renamed");
+    assert_eq!(devices[0].iroh_public_key, "updated-key");
 }
 
 #[tokio::test]
