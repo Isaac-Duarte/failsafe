@@ -23,33 +23,47 @@ I want a main web sever that will handle account & device registration.
 
 ```bash
 cargo install --path crates/failsafe
+cargo install --path crates/failsafe-server
 ```
+
+Building `failsafe-server` requires Node.js 20+ (the Rust build runs `npm ci` and `npm run build` in `failsafe-web` automatically).
 
 ## Running
 
 ### 1. Start the server
 
 ```bash
-FAILSAFE_JWT_SECRET=your-secret failsafe-sevrer
+FAILSAFE_JWT_SECRET=your-secret failsafe-server
 ```
 
 Or from the repo without installing:
 
 ```bash
-FAILSAFE_JWT_SECRET=your-secret cargo run -p failsafe-sevrer
+FAILSAFE_JWT_SECRET=your-secret cargo build --release -p failsafe-server
+FAILSAFE_JWT_SECRET=your-secret ./target/release/failsafe-server
 ```
 
-### 2. Authenticate on each device (CLI)
+Open `http://localhost:8080` for the web UI (register, log in, view devices, generate pairing codes).
 
-Accounts are created and logged in from the CLI. Credentials are saved to `~/.config/failsafe/credentials.toml`.
+To skip the frontend rebuild during Rust iteration (when `failsafe-web/dist` already exists):
 
-**First device — create an account:**
+```bash
+FAILSAFE_SKIP_WEB_BUILD=1 cargo build -p failsafe-server
+```
+
+### 2. Authenticate on each device
+
+You can use the **web UI** or the **CLI**. Credentials from either path are saved to `~/.config/failsafe/credentials.toml` when using the CLI.
+
+**Web UI:** register or log in at `http://localhost:8080`, then use **Add this device** to generate a pairing code.
+
+**CLI — first device (create an account):**
 
 ```bash
 failsafe register --email you@example.com --password your-password
 ```
 
-**Returning user — log in on a device:**
+**CLI — returning user:**
 
 ```bash
 failsafe login --email you@example.com --password your-password
@@ -65,7 +79,7 @@ The daemon registers its Iroh public key with the server and polls for peers eve
 
 ### Adding another device
 
-You can add a device with either **login** or **pairing**.
+You can add a device with **login**, **pairing via CLI**, or a **pairing code from the web UI**.
 
 **Option A — log in directly** (if you have the account password):
 
@@ -82,6 +96,8 @@ On a device that is already authenticated, generate a code:
 failsafe pair
 ```
 
+Or generate a code from the web UI (**Devices → Add this device**).
+
 On the new device:
 
 ```bash
@@ -94,5 +110,19 @@ Optionally set a device name when pairing:
 ```bash
 failsafe pair --code A3K9Z1 --name laptop
 ```
+
+## Web UI development
+
+For frontend hot reload without rebuilding Rust:
+
+```bash
+# terminal 1
+FAILSAFE_JWT_SECRET=your-secret cargo run -p failsafe-server
+
+# terminal 2
+cd failsafe-web && npm run dev
+```
+
+Open `http://localhost:5173` (Vite proxies `/api` to the server).
 
 One person can have multiple devices, and each device can pick an choose which feature they want to have enabled. As an optional feature, it would be cool to invoke all of these features from the web. Now Iroh does compile to web assembly but it doesn't look like its a direct connection anyway. I think how I would approach this instead is to open that direct connection from the sever itself, but only as a one way for limited features. Ie opening a shell, remote desktop, etc.

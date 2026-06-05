@@ -1,1 +1,3 @@
 target/
+failsafe-web/node_modules/
+failsafe-web/dist/

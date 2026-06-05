@@ -9,6 +9,7 @@ pub mod migration;
 pub mod pairing;
 pub mod routes;
 pub mod state;
+pub mod web;
 
 use std::path::PathBuf;
 
@@ -66,6 +67,7 @@ pub fn build_app(state: AppState) -> Router {
     Router::new()
         .merge(public)
         .merge(protected)
+        .fallback(get(web::serve))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

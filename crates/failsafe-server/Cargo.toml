@@ -1,10 +1,11 @@
 [package]
-name = "failsafe-sevrer"
+name = "failsafe-server"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
 
 [[bin]]
-name = "failsafe-sevrer"
+name = "failsafe-server"
 path = "src/main.rs"
 
 [dependencies]
@@ -28,6 +29,8 @@ clap.workspace = true
 dirs.workspace = true
 async-trait = "0.1"
 rand = { version = "0.8", features = ["std_rng"] }
+rust-embed = "8"
+mime_guess = "2"
 
 [dev-dependencies]
 http-body-util.workspace = true

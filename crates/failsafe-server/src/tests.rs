@@ -223,3 +223,32 @@ async fn pairing_code_can_be_redeemed_once() {
         axum::http::StatusCode::BAD_REQUEST
     );
 }
+
+#[tokio::test]
+async fn serves_embedded_frontend() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(content_type.starts_with("text/html"));
+
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&bytes);
+    assert!(html.contains("<!doctype html") || html.contains("<!DOCTYPE html"));
+}

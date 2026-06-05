@@ -4,7 +4,7 @@ members = [
     "crates/failsafe-clipboard",
     "crates/failsafe-core",
     "crates/failsafe",
-    "crates/failsafe-sevrer",
+    "crates/failsafe-server",
     "crates/failsafe-transport",
 ]
 
@@ -12,12 +12,20 @@ members = [
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+incremental = false
+strip = "symbols"
+panic = "abort"
+
 [workspace.dependencies]
 async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
 failsafe = { path = "crates/failsafe" }
-failsafe-sevrer = { path = "crates/failsafe-sevrer" }
+failsafe-server = { path = "crates/failsafe-server" }
 failsafe-transport = { path = "crates/failsafe-transport" }
 clap = { version = "4", features = ["derive"] }
 dirs = "6"

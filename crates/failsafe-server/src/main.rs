@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
-use failsafe_sevrer::{connect_and_migrate, default_database_url, AppState};
-use failsafe_sevrer::auth::JwtService;
+use failsafe_server::{connect_and_migrate, default_database_url, AppState};
+use failsafe_server::auth::JwtService;
 use tracing::info;
 
 #[derive(Parser)]
-#[command(name = "failsafe-sevrer", about = "Failsafe registration server")]
+#[command(name = "failsafe-server", about = "Failsafe registration server")]
 struct Cli {
     /// Address to listen on.
     #[arg(long, default_value = "127.0.0.1:8080")]
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db,
         jwt: JwtService::new(&jwt_secret),
     };
-    let app = failsafe_sevrer::build_app(state);
+    let app = failsafe_server::build_app(state);
 
     info!(%cli.listen, database = %database_url, "failsafe registration server starting");
     let listener = tokio::net::TcpListener::bind(cli.listen).await?;
