@@ -32,16 +32,26 @@ Building `failsafe-server` requires Node.js 20+ (the Rust build runs `npm ci` an
 
 ### 1. Start the server
 
+Copy [`.env.example`](.env.example) to `.env` and set `FAILSAFE_JWT_SECRET`, then:
+
+```bash
+failsafe-server
+```
+
+Or pass variables inline:
+
 ```bash
 FAILSAFE_JWT_SECRET=your-secret failsafe-server
 ```
 
-Or from the repo without installing:
+From the repo without installing:
 
 ```bash
-FAILSAFE_JWT_SECRET=your-secret cargo build --release -p failsafe-server
-FAILSAFE_JWT_SECRET=your-secret ./target/release/failsafe-server
+cargo build --release -p failsafe-server
+./target/release/failsafe-server
 ```
+
+Both `failsafe-server` and `failsafe` load a `.env` file from the current working directory when present.
 
 Open `http://localhost:8080` for the web UI (register, log in, view devices, generate pairing codes).
 

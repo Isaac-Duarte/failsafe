@@ -27,6 +27,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
 dirs.workspace = true
+dotenvy.workspace = true
 async-trait = "0.1"
 rand = { version = "0.8", features = ["std_rng"] }
 rust-embed = "8"
