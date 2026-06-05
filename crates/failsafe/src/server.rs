@@ -1,6 +1,6 @@
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse,
-    DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
+    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse, DeviceUpsertRequest,
+    PairingCreateResponse, PairingRedeemRequest,
 };
 
 use crate::error::DaemonError;
@@ -80,10 +80,7 @@ impl ServerClient {
         code: &str,
     ) -> Result<AuthResponse, DaemonError> {
         let client = reqwest::Client::new();
-        let url = format!(
-            "{}/api/v1/pairing/redeem",
-            base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/api/v1/pairing/redeem", base_url.trim_end_matches('/'));
         let response = client
             .post(url)
             .json(&PairingRedeemRequest {
@@ -97,10 +94,7 @@ impl ServerClient {
     }
 
     pub async fn upsert_device(&self, request: DeviceUpsertRequest) -> Result<(), DaemonError> {
-        let url = format!(
-            "{}/api/v1/devices/{}",
-            self.base_url, request.device_id
-        );
+        let url = format!("{}/api/v1/devices/{}", self.base_url, request.device_id);
         let response = self
             .http
             .put(url)

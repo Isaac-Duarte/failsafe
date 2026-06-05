@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
-use failsafe_server::{connect_and_migrate, default_database_url, AppState};
 use failsafe_server::auth::JwtService;
+use failsafe_server::{AppState, connect_and_migrate, default_database_url};
 use tracing::info;
 
 #[derive(Parser)]

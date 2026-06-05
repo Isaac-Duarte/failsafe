@@ -1,10 +1,10 @@
-use axum::body::Body;
-use axum::extract::State;
-use axum::http::{header, Request, StatusCode};
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
 use crate::error::ServerError;
 use crate::state::AppState;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{Request, StatusCode, header};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 
 pub async fn require_auth(
     State(state): State<AppState>,

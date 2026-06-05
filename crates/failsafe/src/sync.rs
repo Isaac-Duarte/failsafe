@@ -28,8 +28,7 @@ pub async fn apply_server_devices(
 
         let remote_features: HashSet<_> = device.enabled_features.iter().copied().collect();
         for feature in FeatureId::all() {
-            let enabled =
-                local_features.contains(feature) && remote_features.contains(feature);
+            let enabled = local_features.contains(feature) && remote_features.contains(feature);
             peers
                 .set_feature_enabled(device.device_id, *feature, enabled)
                 .await;
@@ -66,22 +65,10 @@ mod tests {
             last_seen: None,
         }];
 
-        apply_server_devices(
-            self_id,
-            &local_features,
-            &devices,
-            &peers,
-            &transport,
-        )
-        .await;
+        apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
 
         assert_eq!(peers.peers().await, vec![peer]);
-        assert!(
-            peers
-                .recipients_for(FeatureId::Clipboard)
-                .await
-                .is_empty()
-        );
+        assert!(peers.recipients_for(FeatureId::Clipboard).await.is_empty());
     }
 
     #[tokio::test]
@@ -100,18 +87,8 @@ mod tests {
             last_seen: None,
         }];
 
-        apply_server_devices(
-            self_id,
-            &local_features,
-            &devices,
-            &peers,
-            &transport,
-        )
-        .await;
+        apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
 
-        assert_eq!(
-            peers.recipients_for(FeatureId::Clipboard).await,
-            vec![peer]
-        );
+        assert_eq!(peers.recipients_for(FeatureId::Clipboard).await, vec![peer]);
     }
 }

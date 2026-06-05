@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
 use crate::codec;
-use crate::iroh::address::{update_address_state, AddressState, SharedAddressState};
+use crate::iroh::address::{AddressState, SharedAddressState, update_address_state};
 use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_manager};
 use crate::peer_updater::PeerAddressUpdater;
@@ -44,9 +44,9 @@ impl IrohTransport {
 
         let (inbox_tx, inbox_rx) = mpsc::channel(256);
         let pool = Arc::new(ConnectionPool::new());
-        let address_state = Arc::new(RwLock::new(
-            AddressState::from_book(config.address_book.clone())?,
-        ));
+        let address_state = Arc::new(RwLock::new(AddressState::from_book(
+            config.address_book.clone(),
+        )?));
 
         let manager = spawn_manager(
             endpoint.clone(),

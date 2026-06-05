@@ -2,13 +2,11 @@ use axum::extract::State;
 use axum::routing::post;
 use axum::{Extension, Json, Router};
 use chrono::{Duration, Utc};
-use failsafe_core::api::{
-    AccountId, AuthResponse, PairingCreateResponse, PairingRedeemRequest,
-};
+use failsafe_core::api::{AccountId, AuthResponse, PairingCreateResponse, PairingRedeemRequest};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
-use crate::entity::{pairing_code, PairingCode};
+use crate::entity::{PairingCode, pairing_code};
 use crate::error::{ServerError, ServerResult};
 use crate::pairing::{generate_code, normalize_code};
 use crate::state::AppState;
@@ -76,7 +74,9 @@ async fn redeem_pairing_code(
         .ok_or_else(|| ServerError::BadRequest("invalid pairing code".to_owned()))?;
 
     if record.used_at.is_some() {
-        return Err(ServerError::BadRequest("pairing code already used".to_owned()));
+        return Err(ServerError::BadRequest(
+            "pairing code already used".to_owned(),
+        ));
     }
 
     if record.expires_at < Utc::now() {

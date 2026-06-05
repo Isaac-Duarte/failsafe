@@ -8,9 +8,9 @@ use failsafe_core::feature::FeatureId;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use crate::{build_app, AppState};
 use crate::auth::JwtService;
 use crate::connect_and_migrate;
+use crate::{AppState, build_app};
 
 async fn body_json<T: serde::de::DeserializeOwned>(body: Body) -> T {
     let bytes = body.collect().await.unwrap().to_bytes();
@@ -164,7 +164,10 @@ async fn pairing_code_can_be_redeemed_once() {
     assert_eq!(create_response.status(), axum::http::StatusCode::OK);
     let PairingCreateResponse { code, expires_at } = body_json(create_response.into_body()).await;
     assert_eq!(code.len(), 6);
-    assert!(code.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()));
+    assert!(
+        code.chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+    );
     assert!(!expires_at.is_empty());
 
     let redeem_response = app
@@ -175,10 +178,7 @@ async fn pairing_code_can_be_redeemed_once() {
                 .uri("/api/v1/pairing/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&PairingRedeemRequest {
-                        code: code.clone(),
-                    })
-                    .unwrap(),
+                    serde_json::to_string(&PairingRedeemRequest { code: code.clone() }).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -186,7 +186,9 @@ async fn pairing_code_can_be_redeemed_once() {
         .unwrap();
 
     assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token: redeemed_token } = body_json(redeem_response.into_body()).await;
+    let AuthResponse {
+        token: redeemed_token,
+    } = body_json(redeem_response.into_body()).await;
     assert!(!redeemed_token.is_empty());
 
     let list_response = app

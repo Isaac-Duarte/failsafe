@@ -2,18 +2,28 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let web_dir = manifest_dir.join("../../failsafe-web");
     let dist_dir = web_dir.join("dist");
 
-    println!("cargo:rerun-if-changed={}", web_dir.join("package.json").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        web_dir.join("package.json").display()
+    );
     println!(
         "cargo:rerun-if-changed={}",
         web_dir.join("package-lock.json").display()
     );
     println!("cargo:rerun-if-changed={}", web_dir.join("src").display());
-    println!("cargo:rerun-if-changed={}", web_dir.join("vite.config.ts").display());
-    println!("cargo:rerun-if-changed={}", web_dir.join("index.html").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        web_dir.join("vite.config.ts").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        web_dir.join("index.html").display()
+    );
 
     if std::env::var("FAILSAFE_SKIP_WEB_BUILD").is_ok() {
         if !dist_dir.join("index.html").exists() {

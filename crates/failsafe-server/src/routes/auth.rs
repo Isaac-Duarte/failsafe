@@ -1,13 +1,13 @@
+use crate::auth::{hash_password, verify_password};
+use crate::entity::{Account, account};
+use crate::error::{ServerError, ServerResult};
+use crate::state::AppState;
 use axum::extract::State;
 use axum::routing::post;
 use axum::{Json, Router};
 use chrono::Utc;
 use failsafe_core::api::{AccountId, AuthLoginRequest, AuthRegisterRequest, AuthResponse};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use crate::auth::{hash_password, verify_password};
-use crate::entity::{account, Account};
-use crate::error::{ServerError, ServerResult};
-use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()

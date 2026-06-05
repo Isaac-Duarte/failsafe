@@ -11,23 +11,14 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Account::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Account::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(Account::Id).uuid().not_null().primary_key())
                     .col(
                         ColumnDef::new(Account::Email)
                             .string()
                             .not_null()
                             .unique_key(),
                     )
-                    .col(
-                        ColumnDef::new(Account::PasswordHash)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Account::PasswordHash).string().not_null())
                     .col(
                         ColumnDef::new(Account::CreatedAt)
                             .timestamp_with_time_zone()
@@ -50,11 +41,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(Device::AccountId).uuid().not_null())
                     .col(ColumnDef::new(Device::Name).string().not_null())
-                    .col(
-                        ColumnDef::new(Device::IrohPublicKey)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Device::IrohPublicKey).string().not_null())
                     .col(ColumnDef::new(Device::EnabledFeatures).json().not_null())
                     .col(ColumnDef::new(Device::LastSeen).timestamp_with_time_zone())
                     .col(

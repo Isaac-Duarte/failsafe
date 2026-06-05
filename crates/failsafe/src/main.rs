@@ -1,11 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use failsafe::{Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle};
 use failsafe_core::peer::PeerDirectory;
-use failsafe::{
-    Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle,
-};
 use tracing::info;
 
 #[derive(Parser)]
@@ -170,7 +168,7 @@ async fn pair(
     }
 }
 
-async fn pair_host(config_path: &PathBuf) -> Result<(), DaemonError> {
+async fn pair_host(config_path: &Path) -> Result<(), DaemonError> {
     let config = Config::load_or_create(config_path)?;
     let credentials = Credentials::load_or_error()?;
     let client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
@@ -185,7 +183,7 @@ async fn pair_host(config_path: &PathBuf) -> Result<(), DaemonError> {
 }
 
 async fn pair_join(
-    config_path: &PathBuf,
+    config_path: &Path,
     code: &str,
     device_name: Option<String>,
 ) -> Result<(), DaemonError> {
@@ -197,9 +195,7 @@ async fn pair_join(
     }
 
     let normalized = normalize_pairing_code(code).ok_or_else(|| {
-        DaemonError::Config(
-            "pairing code must be 6 uppercase alphanumeric characters".to_owned(),
-        )
+        DaemonError::Config("pairing code must be 6 uppercase alphanumeric characters".to_owned())
     })?;
 
     let response = ServerClient::redeem_pairing_code(&config.server_url, &normalized).await?;
@@ -239,9 +235,7 @@ fn normalize_pairing_code(code: &str) -> Option<String> {
 }
 
 fn default_hostname() -> String {
-    gethostname::gethostname()
-        .to_string_lossy()
-        .into_owned()
+    gethostname::gethostname().to_string_lossy().into_owned()
 }
 
 fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {

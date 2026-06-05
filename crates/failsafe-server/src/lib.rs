@@ -13,16 +13,16 @@ pub mod web;
 
 use std::path::PathBuf;
 
+use axum::Router;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
-use axum::Router;
 use sea_orm::Database;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::JwtService;
 use crate::migration::Migrator;
-use sea_orm_migration::MigratorTrait;
 pub use crate::state::AppState;
+use sea_orm_migration::MigratorTrait;
 
 pub async fn connect_and_migrate(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
     let db = Database::connect(database_url).await?;
@@ -72,7 +72,10 @@ pub fn build_app(state: AppState) -> Router {
         .with_state(state)
 }
 
-pub async fn app_from_parts(database_url: &str, jwt_secret: &str) -> Result<Router, sea_orm::DbErr> {
+pub async fn app_from_parts(
+    database_url: &str,
+    jwt_secret: &str,
+) -> Result<Router, sea_orm::DbErr> {
     ensure_database_parent(database_url).map_err(|error| {
         sea_orm::DbErr::Custom(format!("failed to create database parent: {error}"))
     })?;

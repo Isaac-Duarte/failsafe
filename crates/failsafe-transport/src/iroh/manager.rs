@@ -61,15 +61,7 @@ pub fn spawn_manager(
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
-        if let Err(error) = run_manager(
-            endpoint,
-            pool,
-            inbox,
-            address_state,
-            shutdown_rx,
-        )
-        .await
-        {
+        if let Err(error) = run_manager(endpoint, pool, inbox, address_state, shutdown_rx).await {
             warn!("iroh manager exited with error: {error}");
         }
     });
@@ -187,13 +179,9 @@ async fn dial_peers(
 
         match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
             Ok(connection) => {
-                if let Err(error) = register_connection(
-                    &connection,
-                    pool.clone(),
-                    address_state,
-                    inbox.clone(),
-                )
-                .await
+                if let Err(error) =
+                    register_connection(&connection, pool.clone(), address_state, inbox.clone())
+                        .await
                 {
                     warn!(%device, "failed to register outbound connection: {error}");
                     continue;
@@ -215,14 +203,18 @@ async fn register_connection(
 ) -> Result<(), TransportError> {
     let remote_id = connection.remote_id().to_string();
     let device = {
-        let state = address_state
-            .read()
-            .map_err(|error| TransportError::Codec(format!("address state lock poisoned: {error}")))?;
-        state.reverse_lookup.get(&remote_id).copied().ok_or_else(|| {
-            TransportError::Codec(format!(
-                "unknown remote endpoint {remote_id}; waiting for server peer sync"
-            ))
-        })?
+        let state = address_state.read().map_err(|error| {
+            TransportError::Codec(format!("address state lock poisoned: {error}"))
+        })?;
+        state
+            .reverse_lookup
+            .get(&remote_id)
+            .copied()
+            .ok_or_else(|| {
+                TransportError::Codec(format!(
+                    "unknown remote endpoint {remote_id}; waiting for server peer sync"
+                ))
+            })?
     };
 
     pool.insert(device, connection.clone()).await;

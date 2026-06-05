@@ -20,7 +20,6 @@ impl AddressState {
             reverse_lookup,
         })
     }
-
 }
 
 pub type SharedAddressState = Arc<RwLock<AddressState>>;

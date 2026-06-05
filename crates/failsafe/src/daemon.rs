@@ -170,9 +170,7 @@ impl Daemon {
 
     pub async fn register_with_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
-            DaemonError::Config(
-                "credentials are required; pair this device first".to_owned(),
-            )
+            DaemonError::Config("credentials are required; pair this device first".to_owned())
         })?;
 
         let iroh_public_key = self.iroh_public_key.clone().ok_or_else(|| {
@@ -191,9 +189,7 @@ impl Daemon {
 
     pub async fn sync_from_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
-            DaemonError::Config(
-                "credentials are required; pair this device first".to_owned(),
-            )
+            DaemonError::Config("credentials are required; pair this device first".to_owned())
         })?;
 
         let response = client.list_devices().await?;

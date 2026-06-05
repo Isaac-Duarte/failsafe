@@ -37,7 +37,10 @@ mod tests {
     fn generate_code_is_six_uppercase_alphanumeric() {
         let code = generate_code();
         assert_eq!(code.len(), CODE_LEN);
-        assert!(code.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()));
+        assert!(
+            code.chars()
+                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+        );
     }
 
     #[test]

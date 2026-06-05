@@ -2,15 +2,13 @@ use axum::extract::{Path, State};
 use axum::routing::{get, put};
 use axum::{Extension, Json, Router};
 use chrono::Utc;
-use failsafe_core::api::{
-    AccountId, DeviceInfo, DeviceListResponse, DeviceUpsertRequest,
-};
+use failsafe_core::api::{AccountId, DeviceInfo, DeviceListResponse, DeviceUpsertRequest};
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
-use crate::entity::{device, Device};
+use crate::entity::{Device, device};
 use crate::error::{ServerError, ServerResult};
 use crate::state::AppState;
 

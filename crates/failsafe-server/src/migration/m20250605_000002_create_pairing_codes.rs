@@ -29,10 +29,7 @@ impl MigrationTrait for Migration {
                             .timestamp_with_time_zone()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(PairingCode::UsedAt)
-                            .timestamp_with_time_zone(),
-                    )
+                    .col(ColumnDef::new(PairingCode::UsedAt).timestamp_with_time_zone())
                     .col(
                         ColumnDef::new(PairingCode::CreatedAt)
                             .timestamp_with_time_zone()
