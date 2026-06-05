@@ -148,8 +148,8 @@ mod tests {
     use failsafe_transport::transport::Transport;
 
     use super::*;
-    use crate::io::mock::MockClipboardIo;
     use crate::io::ClipboardContent;
+    use crate::io::mock::MockClipboardIo;
     use crate::payload::{ClipboardContent as PayloadContent, ClipboardPayload};
 
     #[tokio::test]

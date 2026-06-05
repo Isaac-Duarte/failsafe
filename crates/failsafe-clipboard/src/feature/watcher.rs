@@ -7,8 +7,8 @@ use failsafe_core::outbound::OutboundMessage;
 
 use crate::payload;
 
-use super::outbound::{content_to_payload, fingerprint_content};
 use super::ClipboardState;
+use super::outbound::{content_to_payload, fingerprint_content};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
 

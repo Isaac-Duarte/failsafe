@@ -77,9 +77,7 @@ mod tests {
     use super::*;
     use crate::io::ImageDataOwned;
     use crate::limits::ClipboardLimits;
-    use crate::payload::{
-        self, ClipboardContent as PayloadContent, ClipboardPayload,
-    };
+    use crate::payload::ClipboardContent as PayloadContent;
 
     use super::super::outbound::content_to_payload;
 

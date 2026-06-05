@@ -1,9 +1,9 @@
 mod content;
 mod files;
-mod system;
 #[cfg(target_os = "linux")]
 mod linux_files;
 pub mod mock;
+mod system;
 
 use async_trait::async_trait;
 
