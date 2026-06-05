@@ -59,11 +59,8 @@ fn read_system_clipboard() -> Result<Option<ClipboardContent>, ClipboardIoError>
     let mut clipboard =
         Clipboard::new().map_err(|error| ClipboardIoError::Unavailable(error.to_string()))?;
 
-    if let Ok(files) = clipboard.get().file_list() {
-        let existing: Vec<PathBuf> = files.into_iter().filter(|path| path.exists()).collect();
-        if !existing.is_empty() {
-            return Ok(Some(ClipboardContent::Files(existing)));
-        }
+    if let Some(files) = read_clipboard_files(&mut clipboard) {
+        return Ok(Some(ClipboardContent::Files(files)));
     }
 
     if let Ok(image) = clipboard.get().image() {
@@ -126,6 +123,72 @@ fn write_system_clipboard(content: &ClipboardContent) -> Result<(), ClipboardIoE
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+fn read_clipboard_files(clipboard: &mut arboard::Clipboard) -> Option<Vec<PathBuf>> {
+    if let Ok(files) = clipboard.get().file_list() {
+        let existing: Vec<PathBuf> = files.into_iter().filter(|path| path.exists()).collect();
+        if !existing.is_empty() {
+            return Some(existing);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    if let Ok(text) = clipboard.get().text() {
+        let paths = parse_file_paths_from_clipboard_text(&text);
+        let existing: Vec<PathBuf> = paths.into_iter().filter(|path| path.exists()).collect();
+        if !existing.is_empty() {
+            return Some(existing);
+        }
+    }
+
+    None
+}
+
+/// Linux file managers often place `file://` URIs in `text/plain` (and sometimes
+/// `x-special/gnome-copied-files` content) without a usable `text/uri-list` entry.
+#[cfg(target_os = "linux")]
+fn parse_file_paths_from_clipboard_text(text: &str) -> Vec<PathBuf> {
+    use percent_encoding::percent_decode;
+
+    let mut lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if lines
+        .first()
+        .is_some_and(|line| *line == "copy" || *line == "cut")
+    {
+        lines.remove(0);
+    }
+
+    if lines.is_empty() {
+        return Vec::new();
+    }
+
+    let mut paths = Vec::with_capacity(lines.len());
+    for line in lines {
+        let path = if let Some(uri) = line.strip_prefix("file://") {
+            percent_decode(uri.as_bytes())
+                .decode_utf8()
+                .ok()
+                .map(|decoded| PathBuf::from(decoded.as_ref()))
+        } else if line.starts_with('/') {
+            Some(PathBuf::from(line))
+        } else {
+            None
+        };
+
+        let Some(path) = path else {
+            return Vec::new();
+        };
+        paths.push(path);
+    }
+
+    paths
+}
+
 fn strip_html_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut in_tag = false;
@@ -175,6 +238,36 @@ fn sanitize_filename(name: &str) -> String {
         "file".to_owned()
     } else {
         candidate.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod linux_file_path_tests {
+    use super::*;
+
+    #[test]
+    fn parses_single_file_uri() {
+        let paths = parse_file_paths_from_clipboard_text("file:///home/user/doc.txt");
+        assert_eq!(paths, vec![PathBuf::from("/home/user/doc.txt")]);
+    }
+
+    #[test]
+    fn parses_gnome_copied_files_format() {
+        let text = "copy\nfile:///home/user/a.txt\nfile:///home/user/b.txt";
+        let paths = parse_file_paths_from_clipboard_text(text);
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/home/user/a.txt"),
+                PathBuf::from("/home/user/b.txt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_mixed_file_and_plain_text() {
+        let text = "file:///home/user/a.txt\nhello";
+        assert!(parse_file_paths_from_clipboard_text(text).is_empty());
     }
 }
 

@@ -1515,6 +1515,7 @@ dependencies = [
  "failsafe-transport",
  "hex",
  "image",
+ "percent-encoding",
  "serde",
  "serde_json",
  "thiserror",

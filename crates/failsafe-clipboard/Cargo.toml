@@ -19,6 +19,7 @@ uuid.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", features = ["image-data", "wayland-data-control"] }
+percent-encoding = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 arboard = { version = "3", features = ["image-data"] }
