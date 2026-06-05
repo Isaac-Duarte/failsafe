@@ -10,15 +10,11 @@ use crate::error::DaemonError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TransportKind {
+    #[default]
     Mock,
     Iroh,
-}
-
-impl Default for TransportKind {
-    fn default() -> Self {
-        Self::Mock
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -59,8 +55,9 @@ impl Config {
 
     pub fn load(path: &Path) -> Result<Self, DaemonError> {
         let contents = std::fs::read_to_string(path).map_err(DaemonError::Io)?;
-        toml::from_str(&contents)
-            .map_err(|error| DaemonError::Config(format!("failed to parse {}: {error}", path.display())))
+        toml::from_str(&contents).map_err(|error| {
+            DaemonError::Config(format!("failed to parse {}: {error}", path.display()))
+        })
     }
 
     pub fn save(&self, path: &Path) -> Result<(), DaemonError> {

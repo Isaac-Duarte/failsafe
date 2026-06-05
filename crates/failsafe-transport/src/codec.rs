@@ -5,8 +5,8 @@ use crate::transport::TransportError;
 const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 pub fn encode(message: &FeatureMessage) -> Result<Vec<u8>, TransportError> {
-    let payload = serde_json::to_vec(message)
-        .map_err(|error| TransportError::Codec(error.to_string()))?;
+    let payload =
+        serde_json::to_vec(message).map_err(|error| TransportError::Codec(error.to_string()))?;
 
     if payload.len() > MAX_MESSAGE_SIZE {
         return Err(TransportError::Codec(format!(

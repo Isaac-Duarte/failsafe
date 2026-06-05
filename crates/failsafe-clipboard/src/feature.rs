@@ -88,9 +88,7 @@ impl Feature for ClipboardFeature {
             .map_err(io_error_to_feature_error);
 
         *self.state.last_emitted.lock().await = Some(text);
-        self.state
-            .applying_remote
-            .store(false, Ordering::SeqCst);
+        self.state.applying_remote.store(false, Ordering::SeqCst);
 
         result
     }
@@ -124,8 +122,7 @@ async fn watch_clipboard(state: Arc<ClipboardState>) {
 
         *state.last_emitted.lock().await = Some(text.clone());
 
-        let outbound =
-            OutboundMessage::new(FeatureId::Clipboard, payload::encode(&text));
+        let outbound = OutboundMessage::new(FeatureId::Clipboard, payload::encode(&text));
 
         if let Err(error) = state.publisher.publish(outbound).await {
             eprintln!("clipboard publish failed: {error}");
@@ -154,7 +151,8 @@ mod tests {
     #[tokio::test]
     async fn handle_message_updates_clipboard() {
         let (transport, _peer) = MockTransport::pair().await;
-        let publisher = MessageRouter::into_publisher(Arc::new(transport), Arc::new(PeerDirectory::new()));
+        let publisher =
+            MessageRouter::into_publisher(Arc::new(transport), Arc::new(PeerDirectory::new()));
         let clipboard = MockClipboardIo::new();
 
         let mut feature = ClipboardFeature::with_clipboard(publisher, clipboard.clone());

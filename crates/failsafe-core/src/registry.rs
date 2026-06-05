@@ -92,9 +92,7 @@ mod tests {
 
     impl EchoFeature {
         fn new() -> Self {
-            Self {
-                last_payload: None,
-            }
+            Self { last_payload: None }
         }
     }
 
@@ -153,6 +151,9 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(err, FeatureError::NotEnabled(FeatureId::Clipboard)));
+        assert!(matches!(
+            err,
+            FeatureError::NotEnabled(FeatureId::Clipboard)
+        ));
     }
 }

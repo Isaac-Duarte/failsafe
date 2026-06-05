@@ -180,10 +180,7 @@ async fn dial_peers(
             continue;
         };
 
-        match endpoint
-            .connect(endpoint_addr, FAILSAFE_ALPN)
-            .await
-        {
+        match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
             Ok(connection) => {
                 if let Err(error) = register_connection(
                     &connection,
@@ -212,14 +209,11 @@ async fn register_connection(
     inbox: mpsc::Sender<FeatureMessage>,
 ) -> Result<(), TransportError> {
     let remote_id = connection.remote_id().to_string();
-    let device = reverse_lookup
-        .get(&remote_id)
-        .copied()
-        .ok_or_else(|| {
-            TransportError::Codec(format!(
-                "unknown remote endpoint {remote_id}; add it to peer_addresses"
-            ))
-        })?;
+    let device = reverse_lookup.get(&remote_id).copied().ok_or_else(|| {
+        TransportError::Codec(format!(
+            "unknown remote endpoint {remote_id}; add it to peer_addresses"
+        ))
+    })?;
 
     pool.insert(device, connection.clone()).await;
     spawn_stream_handler(connection.clone(), device, pool, inbox);

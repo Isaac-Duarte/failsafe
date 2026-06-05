@@ -30,12 +30,7 @@ impl PeerDirectory {
         self.peers.read().await.iter().copied().collect()
     }
 
-    pub async fn set_feature_enabled(
-        &self,
-        peer: DeviceId,
-        feature: FeatureId,
-        enabled: bool,
-    ) {
+    pub async fn set_feature_enabled(&self, peer: DeviceId, feature: FeatureId, enabled: bool) {
         let mut disabled = self.disabled.write().await;
         let key = (peer, feature);
         if enabled {

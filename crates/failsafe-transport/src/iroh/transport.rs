@@ -124,7 +124,8 @@ pub(crate) fn parse_endpoint_addr(address: &str) -> Result<EndpointAddr, Transpo
 
 fn load_or_create_secret_key(path: &Path) -> Result<SecretKey, TransportError> {
     if path.exists() {
-        let bytes = std::fs::read(path).map_err(|error| TransportError::Codec(error.to_string()))?;
+        let bytes =
+            std::fs::read(path).map_err(|error| TransportError::Codec(error.to_string()))?;
         if bytes.len() != 32 {
             return Err(TransportError::Codec(format!(
                 "secret key at {} must be 32 bytes",

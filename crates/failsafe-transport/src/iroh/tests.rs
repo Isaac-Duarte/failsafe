@@ -10,10 +10,7 @@ use tempfile::TempDir;
 use super::{IrohConfig, IrohTransport};
 use crate::transport::Transport;
 
-async fn wait_for_connection(
-    transport: &IrohTransport,
-    peer: DeviceId,
-) -> Result<(), String> {
+async fn wait_for_connection(transport: &IrohTransport, peer: DeviceId) -> Result<(), String> {
     for _ in 0..60 {
         if transport.connected_peers().await.contains(&peer) {
             return Ok(());
@@ -72,12 +69,7 @@ async fn two_transports_exchange_messages() {
         .await
         .expect("b connects to a");
 
-    let message = FeatureMessage::new(
-        device_a,
-        device_b,
-        FeatureId::Clipboard,
-        b"hello over iroh",
-    );
+    let message = FeatureMessage::new(device_a, device_b, FeatureId::Clipboard, b"hello over iroh");
 
     transport_a
         .send(message.clone())
