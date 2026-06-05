@@ -41,13 +41,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { createPairingCode, deleteDevice, listDevices, updateDevice } from "@/lib/api"
+import {
+  createPairingCode,
+  deleteDevice,
+  listDevices,
+  updateDevice,
+} from "@/lib/api"
 import type { DeviceInfo, PairingCreateResponse } from "@/lib/types"
 
 const KNOWN_FEATURES = ["clipboard"] as const
 
 function formatExpiry(expiresAt: string): string {
-  const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
+  const seconds = Math.max(
+    0,
+    Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
+  )
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
   return `${minutes}:${remainder.toString().padStart(2, "0")}`
@@ -113,7 +121,9 @@ export function DevicesPage() {
 
   function toggleEditFeature(feature: string, checked: boolean) {
     setEditFeatures((current) =>
-      checked ? [...current, feature] : current.filter((item) => item !== feature),
+      checked
+        ? [...current, feature]
+        : current.filter((item) => item !== feature)
     )
   }
 
@@ -126,7 +136,9 @@ export function DevicesPage() {
       const response = await createPairingCode()
       setPairing(response)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to create pairing code")
+      setError(
+        err instanceof Error ? err.message : "failed to create pairing code"
+      )
     } finally {
       setPairingLoading(false)
     }
@@ -217,11 +229,11 @@ export function DevicesPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <Button onClick={handleCreatePairingCode} disabled={pairingLoading}>
-            {pairingLoading ? "Generating..." : "Add this device"}
+            {pairingLoading ? "Generating..." : "Get code"}
           </Button>
           {pairing ? (
             <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              <p className="select-all font-mono text-3xl font-bold tracking-[0.35em]">
+              <p className="font-mono text-3xl font-bold tracking-[0.35em] select-all">
                 {pairing.code}
               </p>
               <p className="text-sm text-muted-foreground">{expiryLabel}</p>
@@ -238,11 +250,16 @@ export function DevicesPage() {
         <CardHeader>
           <CardTitle>Registered devices</CardTitle>
           <CardDescription>
-            Devices linked to your account. Feature toggles control which capabilities each device
-            can sync with others.
+            Devices linked to your account. Feature toggles control which
+            capabilities each device can sync with others.
           </CardDescription>
           <CardAction>
-            <Button variant="outline" size="sm" onClick={() => void loadDevices()} disabled={loading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadDevices()}
+              disabled={loading}
+            >
               <RefreshCw className={loading ? "animate-spin" : ""} />
               Refresh
             </Button>
@@ -254,7 +271,10 @@ export function DevicesPage() {
           ) : devices.length === 0 ? (
             <div className="space-y-1 text-sm text-muted-foreground">
               <p>No devices registered yet.</p>
-              <p>Generate a pairing code above, then run the CLI on your new machine to link it.</p>
+              <p>
+                Generate a pairing code above, then run the CLI on your new
+                machine to link it.
+              </p>
             </div>
           ) : (
             <Table>
@@ -271,11 +291,15 @@ export function DevicesPage() {
                 {devices.map((device) => (
                   <TableRow key={device.device_id}>
                     <TableCell className="font-medium">{device.name}</TableCell>
-                    <TableCell className="font-mono text-xs">{device.device_id}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {device.device_id}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {device.enabled_features.length === 0 ? (
-                          <span className="text-sm text-muted-foreground">none</span>
+                          <span className="text-sm text-muted-foreground">
+                            none
+                          </span>
                         ) : (
                           device.enabled_features.map((feature) => (
                             <Badge key={feature} variant="secondary">
@@ -286,7 +310,9 @@ export function DevicesPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {device.last_seen ? new Date(device.last_seen).toLocaleString() : "—"}
+                      {device.last_seen
+                        ? new Date(device.last_seen).toLocaleString()
+                        : "—"}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -328,7 +354,8 @@ export function DevicesPage() {
           <DialogHeader>
             <DialogTitle>Edit device</DialogTitle>
             <DialogDescription>
-              Update the display name and which features this device can sync with others.
+              Update the display name and which features this device can sync
+              with others.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -348,7 +375,10 @@ export function DevicesPage() {
               </p>
               <div className="space-y-2">
                 {KNOWN_FEATURES.map((feature) => (
-                  <label key={feature} className="flex items-center gap-2 text-sm">
+                  <label
+                    key={feature}
+                    className="flex items-center gap-2 text-sm"
+                  >
                     <Checkbox
                       checked={editFeatures.includes(feature)}
                       onCheckedChange={(checked) =>
@@ -363,7 +393,11 @@ export function DevicesPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingDevice(null)} disabled={editSaving}>
+            <Button
+              variant="outline"
+              onClick={() => setEditingDevice(null)}
+              disabled={editSaving}
+            >
               Cancel
             </Button>
             <Button onClick={() => void handleSaveEdit()} disabled={editSaving}>
@@ -387,8 +421,8 @@ export function DevicesPage() {
             <AlertDialogDescription>
               {removingDevice ? (
                 <>
-                  <span className="font-medium">{removingDevice.name}</span> will stop syncing with
-                  your other devices. Run{" "}
+                  <span className="font-medium">{removingDevice.name}</span>{" "}
+                  will stop syncing with your other devices. Run{" "}
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">
                     failsafe pair --code &lt;CODE&gt;
                   </code>{" "}
@@ -398,7 +432,9 @@ export function DevicesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={removeSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={removeSaving}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               disabled={removeSaving}
