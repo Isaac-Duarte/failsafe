@@ -18,6 +18,9 @@ pub trait Transport: Send + Sync {
 
     async fn send(&self, message: FeatureMessage) -> Result<(), TransportError>;
 
+    /// Peers with an active transport session.
+    async fn connected_peers(&self) -> Vec<DeviceId>;
+
     async fn try_recv(&self) -> Result<Option<FeatureMessage>, TransportError>;
 
     async fn recv(&self) -> Result<FeatureMessage, TransportError> {

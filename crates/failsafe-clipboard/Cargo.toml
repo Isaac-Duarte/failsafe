@@ -4,4 +4,23 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 failsafe-core.workspace = true
+failsafe-transport.workspace = true
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { version = "3", features = ["wayland-data-control"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+arboard = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+arboard = "3"
+
+[dev-dependencies]
+failsafe-transport.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }

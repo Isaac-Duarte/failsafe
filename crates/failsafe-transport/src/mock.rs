@@ -52,6 +52,15 @@ impl Transport for MockTransport {
         self.local_id
     }
 
+    async fn connected_peers(&self) -> Vec<DeviceId> {
+        let router = self.router.lock().await;
+        router
+            .keys()
+            .copied()
+            .filter(|peer| *peer != self.local_id)
+            .collect()
+    }
+
     async fn send(&self, message: FeatureMessage) -> Result<(), TransportError> {
         let router = self.router.lock().await;
         let peer = router
