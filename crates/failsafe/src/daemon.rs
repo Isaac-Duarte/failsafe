@@ -254,6 +254,23 @@ impl Daemon {
     }
 }
 
+pub async fn register_local_device(config: &Config, auth_token: String) -> Result<(), DaemonError> {
+    let bundle = create_transport_bundle(config, None).await?;
+    let iroh_public_key = bundle
+        .iroh_public_key
+        .unwrap_or_else(|| format!("mock:{}", config.device_id));
+
+    let client = ServerClient::new(config.server_url.clone(), auth_token);
+    client
+        .upsert_device(DeviceUpsertRequest {
+            device_id: config.device_id,
+            name: config.device_name.clone(),
+            iroh_public_key,
+            enabled_features: config.enabled_features.clone(),
+        })
+        .await
+}
+
 pub async fn create_transport_bundle(
     config: &Config,
     network: Option<Arc<failsafe_transport::mock::MockNetwork>>,

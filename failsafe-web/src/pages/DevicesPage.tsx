@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Check, Copy, RefreshCw } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -14,7 +21,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { createPairingCode, listDevices } from "@/lib/api"
-import { clearToken } from "@/lib/auth"
 import type { DeviceInfo, PairingCreateResponse } from "@/lib/types"
 
 function formatExpiry(expiresAt: string): string {
@@ -25,7 +31,6 @@ function formatExpiry(expiresAt: string): string {
 }
 
 export function DevicesPage() {
-  const navigate = useNavigate()
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -94,23 +99,13 @@ export function DevicesPage() {
     window.setTimeout(() => setCopied(false), 2000)
   }
 
-  function handleLogout() {
-    clearToken()
-    navigate("/login", { replace: true })
-  }
-
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage paired devices and generate codes for new machines.
-          </p>
-        </div>
-        <Button variant="outline" onClick={handleLogout}>
-          Log out
-        </Button>
+    <div className="flex w-full flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage paired devices and generate codes for new machines.
+        </p>
       </div>
 
       {error ? (
@@ -119,7 +114,7 @@ export function DevicesPage() {
         </Alert>
       ) : null}
 
-      <Card>
+      <Card className="shadow-lg ring-1 ring-border/50">
         <CardHeader>
           <CardTitle>Add a device</CardTitle>
           <CardDescription>
@@ -135,10 +130,13 @@ export function DevicesPage() {
             {pairingLoading ? "Generating..." : "Add this device"}
           </Button>
           {pairing ? (
-            <div className="space-y-2 rounded-lg border p-4">
-              <p className="font-mono text-3xl font-bold tracking-[0.35em]">{pairing.code}</p>
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              <p className="select-all font-mono text-3xl font-bold tracking-[0.35em]">
+                {pairing.code}
+              </p>
               <p className="text-sm text-muted-foreground">{expiryLabel}</p>
               <Button variant="secondary" size="sm" onClick={handleCopyCode}>
+                {copied ? <Check /> : <Copy />}
                 {copied ? "Copied" : "Copy code"}
               </Button>
             </div>
@@ -146,16 +144,25 @@ export function DevicesPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="shadow-lg ring-1 ring-border/50">
         <CardHeader>
           <CardTitle>Registered devices</CardTitle>
           <CardDescription>Devices linked to your account.</CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={() => void loadDevices()} disabled={loading}>
+              <RefreshCw className={loading ? "animate-spin" : ""} />
+              Refresh
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading devices...</p>
           ) : devices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No devices registered yet.</p>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>No devices registered yet.</p>
+              <p>Generate a pairing code above, then run the CLI on your new machine to link it.</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>

@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use failsafe::{Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle};
+use failsafe::{
+    Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle,
+    register_local_device,
+};
 use failsafe_core::peer::PeerDirectory;
 use tracing::info;
 
@@ -136,9 +139,11 @@ async fn authenticate(
         DaemonError::Config("could not determine credentials path for this platform".to_owned())
     })?;
     Credentials {
-        auth_token: response.token,
+        auth_token: response.token.clone(),
     }
     .save(&credentials_path)?;
+
+    register_local_device(&config, response.token).await?;
 
     info!(
         credentials = %credentials_path.display(),
@@ -206,10 +211,12 @@ async fn pair_join(
         DaemonError::Config("could not determine credentials path for this platform".to_owned())
     })?;
     Credentials {
-        auth_token: response.token,
+        auth_token: response.token.clone(),
     }
     .save(&credentials_path)?;
     config.save(config_path)?;
+
+    register_local_device(&config, response.token).await?;
 
     println!("Paired successfully.");
     println!("Device ID:   {}", config.device_id);

@@ -33,12 +33,12 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Log in</CardTitle>
-          <CardDescription>Sign in to manage your devices.</CardDescription>
-        </CardHeader>
+    <Card className="w-full max-w-md shadow-lg ring-1 ring-border/50">
+      <CardHeader className="items-center text-center">
+        <img src="/failsafe-logo.svg" alt="" className="mb-1 size-8" />
+        <CardTitle>Log in</CardTitle>
+        <CardDescription>Sign in to manage your devices.</CardDescription>
+      </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
             {error ? (
@@ -79,7 +79,6 @@ export function LoginPage() {
             </Link>
           </p>
         </CardContent>
-      </Card>
-    </div>
+    </Card>
   )
 }

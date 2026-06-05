@@ -9,6 +9,7 @@ pub use config::Config;
 pub use credentials::Credentials;
 pub use daemon::{
     Daemon, DaemonBuilder, TransportBundle, create_transport, create_transport_bundle,
+    register_local_device,
 };
 pub use error::DaemonError;
 pub use server::ServerClient;
