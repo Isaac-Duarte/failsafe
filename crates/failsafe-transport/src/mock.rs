@@ -6,6 +6,9 @@ use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
 use tokio::sync::{Mutex, mpsc};
 
+use failsafe_core::peer_address::PeerAddressBook;
+
+use crate::peer_updater::PeerAddressUpdater;
 use crate::transport::{Transport, TransportError};
 
 type Router = Arc<Mutex<HashMap<DeviceId, mpsc::Sender<FeatureMessage>>>>;
@@ -53,6 +56,10 @@ impl MockTransport {
         let b = network.connect().await;
         (a, b)
     }
+}
+
+impl PeerAddressUpdater for MockTransport {
+    fn update_peer_addresses(&self, _book: PeerAddressBook) {}
 }
 
 #[async_trait]

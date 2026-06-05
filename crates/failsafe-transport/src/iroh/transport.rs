@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
+use failsafe_core::peer_address::PeerAddressBook;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey, endpoint::presets};
 use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
 use crate::codec;
+use crate::iroh::address::{update_address_state, AddressState, SharedAddressState};
 use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_manager};
+use crate::peer_updater::PeerAddressUpdater;
 use crate::transport::{Transport, TransportError};
 
 pub struct IrohTransport {
@@ -21,6 +24,7 @@ pub struct IrohTransport {
     pool: Arc<ConnectionPool>,
     inbox: Mutex<mpsc::Receiver<FeatureMessage>>,
     manager: ManagerCommand,
+    address_state: SharedAddressState,
 }
 
 impl IrohTransport {
@@ -40,14 +44,15 @@ impl IrohTransport {
 
         let (inbox_tx, inbox_rx) = mpsc::channel(256);
         let pool = Arc::new(ConnectionPool::new());
-        let reverse_lookup = build_reverse_lookup(&config.address_book)?;
+        let address_state = Arc::new(RwLock::new(
+            AddressState::from_book(config.address_book.clone())?,
+        ));
 
         let manager = spawn_manager(
             endpoint.clone(),
             pool.clone(),
             inbox_tx,
-            config.address_book.clone(),
-            reverse_lookup,
+            address_state.clone(),
         );
 
         Ok(Self {
@@ -56,6 +61,7 @@ impl IrohTransport {
             pool,
             inbox: Mutex::new(inbox_rx),
             manager,
+            address_state,
         })
     }
 
@@ -63,8 +69,24 @@ impl IrohTransport {
         self.endpoint.id()
     }
 
+    pub fn public_key_hex(&self) -> String {
+        self.endpoint.id().to_string()
+    }
+
     pub fn endpoint_addr(&self) -> EndpointAddr {
         self.endpoint.addr()
+    }
+
+    pub fn update_peers(&self, book: PeerAddressBook) -> Result<(), TransportError> {
+        update_address_state(&self.address_state, book)
+    }
+}
+
+impl PeerAddressUpdater for IrohTransport {
+    fn update_peer_addresses(&self, book: PeerAddressBook) {
+        if let Err(error) = self.update_peers(book) {
+            tracing::warn!("failed to update iroh peer addresses: {error}");
+        }
     }
 }
 
@@ -148,8 +170,8 @@ fn load_or_create_secret_key(path: &Path) -> Result<SecretKey, TransportError> {
     Ok(secret_key)
 }
 
-fn build_reverse_lookup(
-    book: &failsafe_core::peer_address::PeerAddressBook,
+pub(crate) fn build_reverse_lookup(
+    book: &PeerAddressBook,
 ) -> Result<HashMap<String, DeviceId>, TransportError> {
     let mut reverse = HashMap::new();
     for (device, address) in book.iter() {

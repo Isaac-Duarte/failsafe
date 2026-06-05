@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use failsafe_core::peer::PeerDirectory;
-use failsafe_daemon::{Config, Daemon, DaemonError, create_transport};
+use failsafe_daemon::{
+    Config, Credentials, Daemon, DaemonError, ServerClient, create_transport_bundle,
+};
 use tracing::info;
 
 #[derive(Parser)]
@@ -20,6 +22,21 @@ enum Command {
         /// Path to the config file.
         #[arg(long)]
         config: Option<PathBuf>,
+    },
+    /// Authenticate with the registration server.
+    Login {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Account email address.
+        #[arg(long)]
+        email: String,
+        /// Account password.
+        #[arg(long)]
+        password: String,
+        /// Create a new account instead of logging in.
+        #[arg(long)]
+        register: bool,
     },
     /// Print the current configuration.
     Status {
@@ -39,6 +56,12 @@ async fn main() -> Result<(), DaemonError> {
 
     match cli.command {
         Command::Run { config } => run(config).await,
+        Command::Login {
+            config,
+            email,
+            password,
+            register,
+        } => login(config, email, password, register).await,
         Command::Status { config } => status(config),
     }
 }
@@ -51,20 +74,51 @@ async fn run(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
         failsafe_daemon::config::TransportKind::Mock => {
             info!("mock transport is in-memory only; use transport = \"iroh\" for real devices");
         }
-        failsafe_daemon::config::TransportKind::Iroh => {
-            info!("using iroh transport; share your iroh public key with peers for peer_addresses");
-        }
+        failsafe_daemon::config::TransportKind::Iroh => {}
     }
 
+    let credentials = Credentials::load_or_error()?;
+    let server_client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
+
     let peers = Arc::new(PeerDirectory::new());
-    peers.replace_peers(config.peers.clone()).await;
+    let bundle = create_transport_bundle(&config, None).await?;
 
-    let transport = create_transport(&config, None).await?;
-    peers.replace_peers(config.peers.clone()).await;
+    if let Some(key) = &bundle.iroh_public_key {
+        info!(iroh_public_key = %key, "iroh endpoint ready");
+    }
 
-    let mut daemon = Daemon::from_config(&config, transport, peers)?;
-    daemon.apply_config(&config).await;
+    let mut daemon = Daemon::from_config(&config, bundle, peers, Some(server_client))?;
     daemon.run().await
+}
+
+async fn login(
+    config_path: Option<PathBuf>,
+    email: String,
+    password: String,
+    register: bool,
+) -> Result<(), DaemonError> {
+    let path = config_path_or_default(config_path)?;
+    let config = Config::load_or_create(&path)?;
+
+    let response = if register {
+        ServerClient::register(&config.server_url, &email, &password).await?
+    } else {
+        ServerClient::login(&config.server_url, &email, &password).await?
+    };
+
+    let credentials_path = Credentials::default_path().ok_or_else(|| {
+        DaemonError::Config("could not determine credentials path for this platform".to_owned())
+    })?;
+    Credentials {
+        auth_token: response.token,
+    }
+    .save(&credentials_path)?;
+
+    info!(
+        credentials = %credentials_path.display(),
+        "saved authentication credentials"
+    );
+    Ok(())
 }
 
 fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
@@ -81,15 +135,19 @@ fn status(config_path: Option<PathBuf>) -> Result<(), DaemonError> {
 
     println!("config: {}", path.display());
     println!("device_id: {}", config.device_id);
+    println!("device_name: {}", config.device_name);
+    println!("server_url: {}", config.server_url);
+    if let Some(credentials_path) = Credentials::default_path() {
+        println!(
+            "credentials: {}",
+            if credentials_path.exists() {
+                format!("present at {}", credentials_path.display())
+            } else {
+                "not found".to_owned()
+            }
+        );
+    }
     println!("transport: {:?}", config.transport);
-    println!("peers: {}", config.peers.len());
-    for peer in &config.peers {
-        println!("  - {peer}");
-    }
-    println!("peer_addresses: {}", config.peer_addresses.len());
-    for (peer, address) in &config.peer_addresses {
-        println!("  - {peer} = {address}");
-    }
     println!("enabled_features:");
     for feature in &config.enabled_features {
         println!("  - {feature}");

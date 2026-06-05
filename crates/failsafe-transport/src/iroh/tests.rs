@@ -83,3 +83,45 @@ async fn two_transports_exchange_messages() {
 
     assert_eq!(received, message);
 }
+
+#[tokio::test]
+async fn update_peers_connects_to_new_peer() {
+    let temp = TempDir::new().expect("tempdir");
+    let device_a = DeviceId::new();
+    let device_b = DeviceId::new();
+
+    let transport_a = IrohTransport::start(IrohConfig {
+        device_id: device_a,
+        secret_key_path: temp.path().join("a.key"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport a");
+
+    let transport_b = IrohTransport::start(IrohConfig {
+        device_id: device_b,
+        secret_key_path: temp.path().join("b.key"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport b");
+
+    let mut addresses_a = HashMap::new();
+    addresses_a.insert(device_b, transport_b.public_key().to_string());
+    transport_a
+        .update_peers(PeerAddressBook::from_map(addresses_a))
+        .expect("update peer addresses on a");
+
+    let mut addresses_b = HashMap::new();
+    addresses_b.insert(device_a, transport_a.public_key().to_string());
+    transport_b
+        .update_peers(PeerAddressBook::from_map(addresses_b))
+        .expect("update peer addresses on b");
+
+    wait_for_connection(&transport_a, device_b)
+        .await
+        .expect("a connects to b after peer update");
+    wait_for_connection(&transport_b, device_a)
+        .await
+        .expect("b connects to a after peer update");
+}

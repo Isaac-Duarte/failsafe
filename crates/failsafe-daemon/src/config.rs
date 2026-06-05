@@ -1,9 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
-use failsafe_core::peer_address::PeerAddressBook;
 use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
@@ -17,32 +16,36 @@ pub enum TransportKind {
     Iroh,
 }
 
+fn default_device_name() -> String {
+    "my-device".to_owned()
+}
+
+fn default_server_url() -> String {
+    "http://127.0.0.1:8080".to_owned()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub device_id: DeviceId,
-    #[serde(default)]
-    pub peers: Vec<DeviceId>,
+    #[serde(default = "default_device_name")]
+    pub device_name: String,
+    #[serde(default = "default_server_url")]
+    pub server_url: String,
     #[serde(default)]
     pub enabled_features: Vec<FeatureId>,
     #[serde(default)]
     pub transport: TransportKind,
-    #[serde(default)]
-    pub peer_addresses: HashMap<DeviceId, String>,
 }
 
 impl Config {
     pub fn new(device_id: DeviceId) -> Self {
         Self {
             device_id,
-            peers: Vec::new(),
+            device_name: default_device_name(),
+            server_url: default_server_url(),
             enabled_features: vec![FeatureId::Clipboard],
             transport: TransportKind::Mock,
-            peer_addresses: HashMap::new(),
         }
-    }
-
-    pub fn peer_address_book(&self) -> PeerAddressBook {
-        PeerAddressBook::from_map(self.peer_addresses.clone())
     }
 
     pub fn default_secret_key_path() -> Option<PathBuf> {
@@ -95,5 +98,6 @@ mod tests {
         let parsed: Config = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
         assert_eq!(config.device_id, parsed.device_id);
         assert_eq!(config.enabled_features, parsed.enabled_features);
+        assert_eq!(config.server_url, parsed.server_url);
     }
 }

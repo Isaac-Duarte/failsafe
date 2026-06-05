@@ -13,6 +13,12 @@ pub enum FeatureId {
     Clipboard,
 }
 
+impl FeatureId {
+    pub fn all() -> &'static [FeatureId] {
+        &[FeatureId::Clipboard]
+    }
+}
+
 impl fmt::Display for FeatureId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

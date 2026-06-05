@@ -1,3 +1,4 @@
+mod address;
 mod config;
 mod manager;
 mod transport;

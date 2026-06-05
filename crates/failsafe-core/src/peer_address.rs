@@ -4,9 +4,8 @@ use crate::device::DeviceId;
 
 /// Maps logical device IDs to opaque network addresses.
 ///
-/// Addresses are transport-specific strings (e.g. Iroh `EndpointAddr`). The
-/// registration server will populate this in the future; for now it comes
-/// from daemon config.
+/// Addresses are transport-specific strings (e.g. Iroh `EndpointAddr`).
+/// Populated by the daemon from the registration server.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PeerAddressBook {
     addresses: HashMap<DeviceId, String>,

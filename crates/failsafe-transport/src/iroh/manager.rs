@@ -1,28 +1,27 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
-use failsafe_core::peer_address::PeerAddressBook;
 use iroh::Endpoint;
 use iroh::endpoint::Connection;
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use crate::codec;
+use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
 use crate::transport::TransportError;
 
 pub struct ConnectionPool {
-    connections: Mutex<HashMap<DeviceId, Connection>>,
+    connections: tokio::sync::Mutex<std::collections::HashMap<DeviceId, Connection>>,
 }
 
 impl ConnectionPool {
     pub fn new() -> Self {
         Self {
-            connections: Mutex::new(HashMap::new()),
+            connections: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -58,8 +57,7 @@ pub fn spawn_manager(
     endpoint: Endpoint,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
-    address_book: PeerAddressBook,
-    reverse_lookup: HashMap<String, DeviceId>,
+    address_state: SharedAddressState,
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -67,8 +65,7 @@ pub fn spawn_manager(
             endpoint,
             pool,
             inbox,
-            address_book,
-            reverse_lookup,
+            address_state,
             shutdown_rx,
         )
         .await
@@ -87,16 +84,14 @@ async fn run_manager(
     endpoint: Endpoint,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
-    address_book: PeerAddressBook,
-    reverse_lookup: HashMap<String, DeviceId>,
+    address_state: SharedAddressState,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), TransportError> {
     let endpoint = Arc::new(endpoint);
-    let reverse_lookup = Arc::new(reverse_lookup);
 
     let accept_endpoint = endpoint.clone();
     let accept_pool = pool.clone();
-    let accept_lookup = reverse_lookup.clone();
+    let accept_state = address_state.clone();
     let accept_inbox = inbox.clone();
     let mut accept_shutdown = shutdown.clone();
 
@@ -116,7 +111,7 @@ async fn run_manager(
             };
 
             let accept_pool = accept_pool.clone();
-            let accept_lookup = accept_lookup.clone();
+            let accept_state = accept_state.clone();
             let accept_inbox = accept_inbox.clone();
 
             tokio::spawn(async move {
@@ -125,7 +120,7 @@ async fn run_manager(
                         if let Err(error) = register_connection(
                             &connection,
                             accept_pool.clone(),
-                            accept_lookup.as_ref(),
+                            &accept_state,
                             accept_inbox.clone(),
                         )
                         .await
@@ -151,8 +146,7 @@ async fn run_manager(
                 dial_peers(
                     endpoint.clone(),
                     pool.clone(),
-                    &address_book,
-                    reverse_lookup.clone(),
+                    &address_state,
                     inbox.clone(),
                 ).await;
             }
@@ -166,17 +160,28 @@ async fn run_manager(
 async fn dial_peers(
     endpoint: Arc<Endpoint>,
     pool: Arc<ConnectionPool>,
-    address_book: &PeerAddressBook,
-    reverse_lookup: Arc<HashMap<String, DeviceId>>,
+    address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
 ) {
-    for (device, address) in address_book.iter() {
+    let peers_to_dial: Vec<(DeviceId, String)> = match address_state.read() {
+        Ok(state) => state
+            .book
+            .iter()
+            .map(|(device, address)| (device, address.to_owned()))
+            .collect(),
+        Err(error) => {
+            warn!("address state lock poisoned: {error}");
+            return;
+        }
+    };
+
+    for (device, address) in peers_to_dial {
         if pool.get(device).await.is_some() {
             continue;
         }
 
-        let Ok(endpoint_addr) = crate::iroh::transport::parse_endpoint_addr(address) else {
-            warn!(%device, address, "skipping peer with invalid iroh address");
+        let Ok(endpoint_addr) = crate::iroh::transport::parse_endpoint_addr(&address) else {
+            warn!(%device, %address, "skipping peer with invalid iroh address");
             continue;
         };
 
@@ -185,7 +190,7 @@ async fn dial_peers(
                 if let Err(error) = register_connection(
                     &connection,
                     pool.clone(),
-                    reverse_lookup.as_ref(),
+                    address_state,
                     inbox.clone(),
                 )
                 .await
@@ -205,15 +210,20 @@ async fn dial_peers(
 async fn register_connection(
     connection: &Connection,
     pool: Arc<ConnectionPool>,
-    reverse_lookup: &HashMap<String, DeviceId>,
+    address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
 ) -> Result<(), TransportError> {
     let remote_id = connection.remote_id().to_string();
-    let device = reverse_lookup.get(&remote_id).copied().ok_or_else(|| {
-        TransportError::Codec(format!(
-            "unknown remote endpoint {remote_id}; add it to peer_addresses"
-        ))
-    })?;
+    let device = {
+        let state = address_state
+            .read()
+            .map_err(|error| TransportError::Codec(format!("address state lock poisoned: {error}")))?;
+        state.reverse_lookup.get(&remote_id).copied().ok_or_else(|| {
+            TransportError::Codec(format!(
+                "unknown remote endpoint {remote_id}; waiting for server peer sync"
+            ))
+        })?
+    };
 
     pool.insert(device, connection.clone()).await;
     spawn_stream_handler(connection.clone(), device, pool, inbox);
