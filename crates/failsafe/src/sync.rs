@@ -13,10 +13,7 @@ use failsafe_transport::peer_updater::PeerAddressUpdater;
 use crate::config::Config;
 use crate::error::DaemonError;
 
-pub fn find_self_device<'a>(
-    self_id: DeviceId,
-    devices: &'a [DeviceInfo],
-) -> Option<&'a DeviceInfo> {
+pub fn find_self_device(self_id: DeviceId, devices: &[DeviceInfo]) -> Option<&DeviceInfo> {
     devices.iter().find(|device| device.device_id == self_id)
 }
 

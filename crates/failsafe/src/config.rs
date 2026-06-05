@@ -164,19 +164,14 @@ mod tests {
 
     #[test]
     fn apply_server_policy_persists_server_managed_fields() {
-        let dir = std::env::temp_dir().join(format!(
-            "failsafe-config-test-{}",
-            DeviceId::new()
-        ));
+        let dir = std::env::temp_dir().join(format!("failsafe-config-test-{}", DeviceId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
 
         let mut config = Config::new(DeviceId::new());
         config.save(&path).unwrap();
 
-        let changed = config
-            .apply_server_policy("renamed", &[], &path)
-            .unwrap();
+        let changed = config.apply_server_policy("renamed", &[], &path).unwrap();
         assert!(changed);
 
         let loaded = Config::load(&path).unwrap();

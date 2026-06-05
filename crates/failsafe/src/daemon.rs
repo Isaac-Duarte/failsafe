@@ -404,14 +404,9 @@ mod tests {
         let bundle = create_test_transport_bundle(&config, MockNetwork::new()).await;
         let peers = Arc::new(PeerDirectory::new());
 
-        let daemon = Daemon::from_config(
-            Config::default_path().unwrap(),
-            config,
-            bundle,
-            peers,
-            None,
-        )
-        .unwrap();
+        let daemon =
+            Daemon::from_config(Config::default_path().unwrap(), config, bundle, peers, None)
+                .unwrap();
         assert_eq!(daemon.device_id(), device_id);
     }
 
