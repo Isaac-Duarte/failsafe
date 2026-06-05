@@ -1,6 +1,7 @@
 use axum::body::Body;
 use failsafe_core::api::{
     AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse, DeviceUpsertRequest,
+    PairingCreateResponse, PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -119,4 +120,106 @@ async fn register_login_and_manage_devices() {
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].device_id, device_id);
     assert_eq!(devices[0].iroh_public_key, "abc123");
+}
+
+#[tokio::test]
+async fn pairing_code_can_be_redeemed_once() {
+    let app = test_app().await;
+
+    let register_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: "pair@example.com".to_owned(),
+                        password: "hunter2".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let AuthResponse { token } = body_json(register_response.into_body()).await;
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), axum::http::StatusCode::OK);
+    let PairingCreateResponse { code, expires_at } = body_json(create_response.into_body()).await;
+    assert_eq!(code.len(), 6);
+    assert!(code.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()));
+    assert!(!expires_at.is_empty());
+
+    let redeem_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing/redeem")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code: code.clone(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
+    let AuthResponse { token: redeemed_token } = body_json(redeem_response.into_body()).await;
+    assert!(!redeemed_token.is_empty());
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {redeemed_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list_response.status(), axum::http::StatusCode::OK);
+
+    let redeem_again_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing/redeem")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&PairingRedeemRequest { code }).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        redeem_again_response.status(),
+        axum::http::StatusCode::BAD_REQUEST
+    );
 }

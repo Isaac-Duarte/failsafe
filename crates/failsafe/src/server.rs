@@ -1,5 +1,6 @@
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse, DeviceUpsertRequest,
+    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceListResponse,
+    DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
 };
 
 use crate::error::DaemonError;
@@ -56,6 +57,41 @@ impl ServerClient {
             .send()
             .await
             .map_err(|error| DaemonError::Config(format!("login request failed: {error}")))?;
+
+        parse_json_response(response).await
+    }
+
+    pub async fn create_pairing_code(&self) -> Result<PairingCreateResponse, DaemonError> {
+        let url = format!("{}/api/v1/pairing", self.base_url);
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(&self.auth_token)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("create pairing code failed: {error}")))?;
+
+        parse_json_response(response).await
+    }
+
+    pub async fn redeem_pairing_code(
+        base_url: &str,
+        code: &str,
+    ) -> Result<AuthResponse, DaemonError> {
+        let client = reqwest::Client::new();
+        let url = format!(
+            "{}/api/v1/pairing/redeem",
+            base_url.trim_end_matches('/')
+        );
+        let response = client
+            .post(url)
+            .json(&PairingRedeemRequest {
+                code: code.to_owned(),
+            })
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("redeem pairing code failed: {error}")))?;
 
         parse_json_response(response).await
     }

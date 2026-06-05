@@ -171,7 +171,7 @@ impl Daemon {
     pub async fn register_with_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config(
-                "credentials are required; run `failsafe login` first".to_owned(),
+                "credentials are required; pair this device first".to_owned(),
             )
         })?;
 
@@ -192,7 +192,7 @@ impl Daemon {
     pub async fn sync_from_server(&self) -> Result<(), DaemonError> {
         let client = self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config(
-                "credentials are required; run `failsafe login` first".to_owned(),
+                "credentials are required; pair this device first".to_owned(),
             )
         })?;
 
@@ -212,7 +212,7 @@ impl Daemon {
     pub async fn run(&mut self) -> Result<(), DaemonError> {
         if self.server_client.is_none() {
             return Err(DaemonError::Config(
-                "server_url and credentials are required; set server_url in config and run `failsafe login`".to_owned(),
+                "server_url and credentials are required; run `failsafe register`, `failsafe login`, or `failsafe pair --code`".to_owned(),
             ));
         }
 

@@ -1216,6 +1216,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "failsafe"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "dirs",
+ "failsafe-clipboard",
+ "failsafe-core",
+ "failsafe-transport",
+ "gethostname",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "failsafe-clipboard"
 version = "0.1.0"
 dependencies = [
@@ -1239,25 +1260,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "failsafe-daemon"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "clap",
- "dirs",
- "failsafe-clipboard",
- "failsafe-core",
- "failsafe-transport",
- "reqwest 0.12.28",
- "serde",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

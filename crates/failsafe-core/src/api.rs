@@ -76,3 +76,14 @@ pub struct DeviceInfo {
 pub struct DeviceListResponse {
     pub devices: Vec<DeviceInfo>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingCreateResponse {
+    pub code: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingRedeemRequest {
+    pub code: String,
+}

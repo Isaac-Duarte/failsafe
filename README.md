@@ -19,36 +19,80 @@ I want to have a trait-based approach for each one of these features. For testin
 
 I want a main web sever that will handle account & device registration.
 
+## Install
+
+```bash
+cargo install --path crates/failsafe
+```
+
 ## Running
 
-1. Start the server:
+### 1. Start the server
+
+```bash
+FAILSAFE_JWT_SECRET=your-secret failsafe-sevrer
+```
+
+Or from the repo without installing:
 
 ```bash
 FAILSAFE_JWT_SECRET=your-secret cargo run -p failsafe-sevrer
 ```
 
-2. On each device, configure `~/.config/failsafe/config.toml`:
+### 2. Authenticate on each device (CLI)
 
-```toml
-device_id = "your-device-uuid"
-device_name = "laptop"
-server_url = "http://localhost:8080"
-transport = "iroh"
-enabled_features = ["clipboard"]
-```
+Accounts are created and logged in from the CLI. Credentials are saved to `~/.config/failsafe/credentials.toml`.
 
-3. Log in (use `--register` the first time):
+**First device — create an account:**
 
 ```bash
-cargo run -p failsafe-daemon -- login --register --email you@example.com --password your-password
+failsafe register --email you@example.com --password your-password
 ```
 
-4. Run the daemon on each device:
+**Returning user — log in on a device:**
 
 ```bash
-cargo run -p failsafe-daemon -- run
+failsafe login --email you@example.com --password your-password
+```
+
+### 3. Run the daemon
+
+```bash
+failsafe run
 ```
 
 The daemon registers its Iroh public key with the server and polls for peers every 30 seconds. Clipboard sync is enabled between devices when both sides have `clipboard` in `enabled_features`.
+
+### Adding another device
+
+You can add a device with either **login** or **pairing**.
+
+**Option A — log in directly** (if you have the account password):
+
+```bash
+failsafe login --email you@example.com --password your-password
+failsafe run
+```
+
+**Option B — pair with a code** (no password needed on the new device):
+
+On a device that is already authenticated, generate a code:
+
+```bash
+failsafe pair
+```
+
+On the new device:
+
+```bash
+failsafe pair --code A3K9Z1
+failsafe run
+```
+
+Optionally set a device name when pairing:
+
+```bash
+failsafe pair --code A3K9Z1 --name laptop
+```
 
 One person can have multiple devices, and each device can pick an choose which feature they want to have enabled. As an optional feature, it would be cool to invoke all of these features from the web. Now Iroh does compile to web assembly but it doesn't look like its a direct connection anyway. I think how I would approach this instead is to open that direct connection from the sever itself, but only as a one way for limited features. Ie opening a shell, remote desktop, etc.

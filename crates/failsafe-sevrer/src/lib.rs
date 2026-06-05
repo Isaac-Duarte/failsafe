@@ -6,6 +6,7 @@ pub mod entity;
 pub mod error;
 pub mod middleware;
 pub mod migration;
+pub mod pairing;
 pub mod routes;
 pub mod state;
 
@@ -54,10 +55,12 @@ pub fn ensure_database_parent(database_url: &str) -> std::io::Result<()> {
 pub fn build_app(state: AppState) -> Router {
     let public = Router::new()
         .nest("/api/v1/auth", routes::auth::router())
+        .nest("/api/v1/pairing", routes::pairing::public_router())
         .route("/health", get(|| async { "ok" }));
 
     let protected = Router::new()
         .nest("/api/v1/devices", routes::devices::router())
+        .nest("/api/v1/pairing", routes::pairing::protected_router())
         .layer(from_fn_with_state(state.clone(), middleware::require_auth));
 
     Router::new()

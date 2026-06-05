@@ -1,5 +1,5 @@
 [package]
-name = "failsafe-daemon"
+name = "failsafe"
 version.workspace = true
 edition.workspace = true
 
@@ -21,6 +21,8 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
+gethostname = "1"
+serde_json = "1"
 
 [dev-dependencies]
 failsafe-clipboard.workspace = true

@@ -3,7 +3,7 @@ resolver = "3"
 members = [
     "crates/failsafe-clipboard",
     "crates/failsafe-core",
-    "crates/failsafe-daemon",
+    "crates/failsafe",
     "crates/failsafe-sevrer",
     "crates/failsafe-transport",
 ]
@@ -16,7 +16,7 @@ edition = "2024"
 async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
-failsafe-daemon = { path = "crates/failsafe-daemon" }
+failsafe = { path = "crates/failsafe" }
 failsafe-sevrer = { path = "crates/failsafe-sevrer" }
 failsafe-transport = { path = "crates/failsafe-transport" }
 clap = { version = "4", features = ["derive"] }

@@ -42,7 +42,7 @@ impl Credentials {
 
         if !path.exists() {
             return Err(DaemonError::Config(format!(
-                "credentials not found at {}; run `failsafe login` first",
+                "credentials not found at {}; run `failsafe register`, `failsafe login`, or `failsafe pair --code`",
                 path.display()
             )));
         }
