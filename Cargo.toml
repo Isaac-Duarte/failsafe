@@ -13,6 +13,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
+async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
 failsafe-daemon = { path = "crates/failsafe-daemon" }
@@ -20,4 +21,5 @@ failsafe-sevrer = { path = "crates/failsafe-sevrer" }
 failsafe-transport = { path = "crates/failsafe-transport" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
