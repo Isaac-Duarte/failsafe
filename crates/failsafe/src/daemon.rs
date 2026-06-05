@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use failsafe_clipboard::feature::ClipboardFeature;
+use failsafe_clipboard::limits::ClipboardLimits;
+use failsafe_transport::blobs::BlobTransfer;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -22,6 +24,7 @@ use crate::sync::apply_server_devices;
 pub struct TransportBundle {
     pub transport: Arc<dyn Transport>,
     pub peer_updater: Arc<dyn PeerAddressUpdater>,
+    pub blob_transfer: Option<Arc<dyn BlobTransfer>>,
     pub iroh_public_key: Option<String>,
 }
 
@@ -44,6 +47,8 @@ pub struct DaemonBuilder {
     server_client: Option<ServerClient>,
     device_name: String,
     iroh_public_key: Option<String>,
+    blob_transfer: Option<Arc<dyn BlobTransfer>>,
+    clipboard_limits: ClipboardLimits,
 }
 
 impl DaemonBuilder {
@@ -56,6 +61,8 @@ impl DaemonBuilder {
             server_client: None,
             device_name: "my-device".to_owned(),
             iroh_public_key: None,
+            blob_transfer: None,
+            clipboard_limits: ClipboardLimits::default(),
         }
     }
 
@@ -99,6 +106,16 @@ impl DaemonBuilder {
         self
     }
 
+    pub fn blob_transfer(mut self, blob_transfer: Option<Arc<dyn BlobTransfer>>) -> Self {
+        self.blob_transfer = blob_transfer;
+        self
+    }
+
+    pub fn clipboard_limits(mut self, limits: ClipboardLimits) -> Self {
+        self.clipboard_limits = limits;
+        self
+    }
+
     pub fn build(self) -> Result<Daemon, DaemonError> {
         let transport = self
             .transport
@@ -111,7 +128,11 @@ impl DaemonBuilder {
         let mut registry = FeatureRegistry::new();
 
         if self.enabled_features.contains(&FeatureId::Clipboard) {
-            registry.register(Box::new(ClipboardFeature::new(publisher)))?;
+            registry.register(Box::new(ClipboardFeature::new_with_limits(
+                publisher,
+                self.blob_transfer.clone(),
+                self.clipboard_limits,
+            )))?;
             registry.enable(FeatureId::Clipboard)?;
         }
 
@@ -148,6 +169,8 @@ impl Daemon {
         let mut builder = Daemon::builder()
             .transport(bundle.transport)
             .peer_updater(bundle.peer_updater)
+            .blob_transfer(bundle.blob_transfer)
+            .clipboard_limits(config.clipboard_limits())
             .peers(peers)
             .enable_features(config.enabled_feature_set())
             .device_name(config.device_name.clone())
@@ -297,6 +320,7 @@ pub async fn create_transport_bundle(
             Ok(TransportBundle {
                 transport,
                 peer_updater,
+                blob_transfer: None,
                 iroh_public_key: None,
             })
         }
@@ -304,12 +328,16 @@ pub async fn create_transport_bundle(
             let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
                 DaemonError::Config("could not determine iroh secret key path".to_owned())
             })?;
+            let blob_store_path = config.resolved_blob_store_path().ok_or_else(|| {
+                DaemonError::Config("could not determine blob store path".to_owned())
+            })?;
 
             let transport = Arc::new(
                 failsafe_transport::iroh::IrohTransport::start(
                     failsafe_transport::iroh::IrohConfig {
                         device_id: config.device_id,
                         secret_key_path,
+                        blob_store_path,
                         address_book: PeerAddressBook::default(),
                     },
                 )
@@ -317,10 +345,12 @@ pub async fn create_transport_bundle(
             );
             let iroh_public_key = transport.public_key_hex();
             let peer_updater = transport.clone();
+            let blob_transfer = Some(transport.blob_transfer());
 
             Ok(TransportBundle {
                 transport,
                 peer_updater,
+                blob_transfer,
                 iroh_public_key: Some(iroh_public_key),
             })
         }

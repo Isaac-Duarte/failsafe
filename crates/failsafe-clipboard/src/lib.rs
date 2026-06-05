@@ -1,6 +1,4 @@
-//! Clipboard sync for Linux, macOS, and Windows.
-
 pub mod feature;
+pub mod io;
+pub mod limits;
 pub mod payload;
-
-mod io;

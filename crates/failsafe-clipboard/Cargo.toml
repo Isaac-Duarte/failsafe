@@ -5,21 +5,26 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+blake3.workspace = true
+dirs.workspace = true
 failsafe-core.workspace = true
 failsafe-transport.workspace = true
+hex = "0.4"
+image.workspace = true
 serde.workspace = true
 serde_json = "1"
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "fs", "rt"] }
+uuid.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-arboard = { version = "3", features = ["wayland-data-control"] }
+arboard = { version = "3", features = ["image-data", "wayland-data-control"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-arboard = "3"
+arboard = { version = "3", features = ["image-data"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-arboard = "3"
+arboard = { version = "3", features = ["image-data"] }
 
 [dev-dependencies]
 failsafe-transport.workspace = true

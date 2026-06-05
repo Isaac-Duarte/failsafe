@@ -1,3 +1,4 @@
+pub mod blobs;
 pub mod codec;
 pub mod mock;
 pub mod peer_updater;

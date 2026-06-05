@@ -36,10 +36,13 @@ toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-iroh = "0.98.2"
+iroh = "1.0.0-rc.1"
+iroh-blobs = "0.102"
 bytes = "1"
 serde_json = "1"
 rand = "0.9"
+blake3 = "1"
+image = "0.25"
 tempfile = "3"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["trace"] }

@@ -12,8 +12,10 @@ use tracing::{debug, warn};
 use crate::codec;
 use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
+use crate::iroh::protocol::resolve_device;
 use crate::transport::TransportError;
 
+#[derive(Debug)]
 pub struct ConnectionPool {
     connections: tokio::sync::Mutex<std::collections::HashMap<DeviceId, Connection>>,
 }
@@ -53,7 +55,7 @@ impl ManagerCommand {
     }
 }
 
-pub fn spawn_manager(
+pub fn spawn_dial_manager(
     endpoint: Endpoint,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
@@ -61,8 +63,10 @@ pub fn spawn_manager(
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
-        if let Err(error) = run_manager(endpoint, pool, inbox, address_state, shutdown_rx).await {
-            warn!("iroh manager exited with error: {error}");
+        if let Err(error) =
+            run_dial_manager(endpoint, pool, inbox, address_state, shutdown_rx).await
+        {
+            warn!("iroh dial manager exited with error: {error}");
         }
     });
 
@@ -72,7 +76,7 @@ pub fn spawn_manager(
     }
 }
 
-async fn run_manager(
+async fn run_dial_manager(
     endpoint: Endpoint,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
@@ -80,53 +84,8 @@ async fn run_manager(
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), TransportError> {
     let endpoint = Arc::new(endpoint);
-
-    let accept_endpoint = endpoint.clone();
-    let accept_pool = pool.clone();
-    let accept_state = address_state.clone();
-    let accept_inbox = inbox.clone();
-    let mut accept_shutdown = shutdown.clone();
-
-    let accept_task = tokio::spawn(async move {
-        loop {
-            if *accept_shutdown.borrow() {
-                break;
-            }
-
-            let incoming = tokio::select! {
-                incoming = accept_endpoint.accept() => incoming,
-                _ = accept_shutdown.changed() => break,
-            };
-
-            let Some(incoming) = incoming else {
-                continue;
-            };
-
-            let accept_pool = accept_pool.clone();
-            let accept_state = accept_state.clone();
-            let accept_inbox = accept_inbox.clone();
-
-            tokio::spawn(async move {
-                match incoming.await {
-                    Ok(connection) => {
-                        if let Err(error) = register_connection(
-                            &connection,
-                            accept_pool.clone(),
-                            &accept_state,
-                            accept_inbox.clone(),
-                        )
-                        .await
-                        {
-                            warn!("failed to register inbound connection: {error}");
-                        }
-                    }
-                    Err(error) => warn!("failed to accept iroh connection: {error}"),
-                }
-            });
-        }
-    });
-
     let mut dial_interval = tokio::time::interval(Duration::from_secs(5));
+
     loop {
         tokio::select! {
             _ = shutdown.changed() => {
@@ -145,7 +104,6 @@ async fn run_manager(
         }
     }
 
-    accept_task.abort();
     Ok(())
 }
 
@@ -179,9 +137,13 @@ async fn dial_peers(
 
         match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
             Ok(connection) => {
-                if let Err(error) =
-                    register_connection(&connection, pool.clone(), address_state, inbox.clone())
-                        .await
+                if let Err(error) = register_dialed_connection(
+                    &connection,
+                    pool.clone(),
+                    address_state,
+                    inbox.clone(),
+                )
+                .await
                 {
                     warn!(%device, "failed to register outbound connection: {error}");
                     continue;
@@ -195,28 +157,20 @@ async fn dial_peers(
     }
 }
 
-async fn register_connection(
+pub(crate) fn register_outbound_connection(
+    connection: &Connection,
+    address_state: &SharedAddressState,
+) -> Result<DeviceId, TransportError> {
+    resolve_device(connection, address_state)
+}
+
+async fn register_dialed_connection(
     connection: &Connection,
     pool: Arc<ConnectionPool>,
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
 ) -> Result<(), TransportError> {
-    let remote_id = connection.remote_id().to_string();
-    let device = {
-        let state = address_state.read().map_err(|error| {
-            TransportError::Codec(format!("address state lock poisoned: {error}"))
-        })?;
-        state
-            .reverse_lookup
-            .get(&remote_id)
-            .copied()
-            .ok_or_else(|| {
-                TransportError::Codec(format!(
-                    "unknown remote endpoint {remote_id}; waiting for server peer sync"
-                ))
-            })?
-    };
-
+    let device = register_outbound_connection(connection, address_state)?;
     pool.insert(device, connection.clone()).await;
     spawn_stream_handler(connection.clone(), device, pool, inbox);
     Ok(())

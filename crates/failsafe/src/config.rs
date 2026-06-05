@@ -23,6 +23,10 @@ fn default_server_url() -> String {
     "http://127.0.0.1:8080".to_owned()
 }
 
+fn default_clipboard_max_file_bytes() -> u64 {
+    100 * 1024 * 1024
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub device_id: DeviceId,
@@ -34,6 +38,10 @@ pub struct Config {
     pub enabled_features: Vec<FeatureId>,
     #[serde(default)]
     pub transport: TransportKind,
+    #[serde(default)]
+    pub blob_store_path: Option<PathBuf>,
+    #[serde(default = "default_clipboard_max_file_bytes")]
+    pub clipboard_max_file_bytes: u64,
 }
 
 impl Config {
@@ -44,11 +52,30 @@ impl Config {
             server_url: default_server_url(),
             enabled_features: vec![FeatureId::Clipboard],
             transport: TransportKind::Iroh,
+            blob_store_path: None,
+            clipboard_max_file_bytes: default_clipboard_max_file_bytes(),
         }
     }
 
     pub fn default_secret_key_path() -> Option<PathBuf> {
         dirs::config_dir().map(|dir| dir.join("failsafe").join("iroh.key"))
+    }
+
+    pub fn default_blob_store_path() -> Option<PathBuf> {
+        dirs::data_local_dir().map(|dir| dir.join("failsafe").join("blobs"))
+    }
+
+    pub fn resolved_blob_store_path(&self) -> Option<PathBuf> {
+        self.blob_store_path
+            .clone()
+            .or_else(Self::default_blob_store_path)
+    }
+
+    pub fn clipboard_limits(&self) -> failsafe_clipboard::limits::ClipboardLimits {
+        failsafe_clipboard::limits::ClipboardLimits {
+            max_file_bytes: self.clipboard_max_file_bytes,
+            max_total_bytes: self.clipboard_max_file_bytes.saturating_mul(5),
+        }
     }
 
     pub fn default_path() -> Option<PathBuf> {

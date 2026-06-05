@@ -7,14 +7,19 @@ use async_trait::async_trait;
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer_address::PeerAddressBook;
+use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey, endpoint::presets};
+use iroh_blobs::store::fs::FsStore;
+use iroh_blobs::{BlobsProtocol, ALPN as BLOBS_ALPN};
 use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
+use crate::blobs::{BlobTransfer, IrohBlobTransfer};
 use crate::codec;
 use crate::iroh::address::{AddressState, SharedAddressState, update_address_state};
 use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
-use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_manager};
+use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
+use crate::iroh::protocol::FailsafeProtocol;
 use crate::peer_updater::PeerAddressUpdater;
 use crate::transport::{Transport, TransportError};
 
@@ -24,15 +29,21 @@ pub struct IrohTransport {
     pool: Arc<ConnectionPool>,
     inbox: Mutex<mpsc::Receiver<FeatureMessage>>,
     manager: ManagerCommand,
+    router: Option<Router>,
+    blob_transfer: Arc<IrohBlobTransfer>,
     address_state: SharedAddressState,
 }
 
 impl IrohTransport {
     pub async fn start(config: IrohConfig) -> Result<Self, TransportError> {
         let secret_key = load_or_create_secret_key(&config.secret_key_path)?;
+        let blob_store = FsStore::load(&config.blob_store_path)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![FAILSAFE_ALPN.to_vec()])
+            .alpns(vec![FAILSAFE_ALPN.to_vec(), BLOBS_ALPN.to_vec()])
             .bind()
             .await
             .map_err(|error| TransportError::Codec(error.to_string()))?;
@@ -48,7 +59,21 @@ impl IrohTransport {
             config.address_book.clone(),
         )?));
 
-        let manager = spawn_manager(
+        let blob_transfer =
+            IrohBlobTransfer::new(blob_store, endpoint.clone(), address_state.clone());
+
+        let failsafe_protocol = FailsafeProtocol::new(
+            pool.clone(),
+            inbox_tx.clone(),
+            address_state.clone(),
+        );
+        let blobs = BlobsProtocol::new(blob_transfer.store(), None);
+        let router = Router::builder(endpoint.clone())
+            .accept(BLOBS_ALPN, blobs)
+            .accept(FAILSAFE_ALPN, failsafe_protocol)
+            .spawn();
+
+        let manager = spawn_dial_manager(
             endpoint.clone(),
             pool.clone(),
             inbox_tx,
@@ -61,6 +86,8 @@ impl IrohTransport {
             pool,
             inbox: Mutex::new(inbox_rx),
             manager,
+            router: Some(router),
+            blob_transfer,
             address_state,
         })
     }
@@ -75,6 +102,10 @@ impl IrohTransport {
 
     pub fn endpoint_addr(&self) -> EndpointAddr {
         self.endpoint.addr()
+    }
+
+    pub fn blob_transfer(&self) -> Arc<dyn BlobTransfer> {
+        self.blob_transfer.clone() as Arc<dyn BlobTransfer>
     }
 
     pub fn update_peers(&self, book: PeerAddressBook) -> Result<(), TransportError> {
@@ -135,6 +166,13 @@ impl Transport for IrohTransport {
 impl Drop for IrohTransport {
     fn drop(&mut self) {
         self.manager.shutdown();
+        if let Some(router) = self.router.take() {
+            tokio::spawn(async move {
+                if let Err(error) = router.shutdown().await {
+                    tracing::warn!("iroh router shutdown failed: {error}");
+                }
+            });
+        }
     }
 }
 

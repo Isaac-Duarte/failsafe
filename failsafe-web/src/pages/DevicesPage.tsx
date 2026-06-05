@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -50,6 +51,52 @@ import {
 import type { DeviceInfo, PairingCreateResponse } from "@/lib/types"
 
 const KNOWN_FEATURES = ["clipboard"] as const
+const INITIAL_SKELETON_ROWS = 3
+
+function DevicesTableHeader() {
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead>Name</TableHead>
+        <TableHead>Status</TableHead>
+        <TableHead>Device ID</TableHead>
+        <TableHead>Features</TableHead>
+        <TableHead>Last seen</TableHead>
+        <TableHead className="text-right">Actions</TableHead>
+      </TableRow>
+    </TableHeader>
+  )
+}
+
+function DeviceTableSkeletonRow() {
+  return (
+    <TableRow>
+      <TableCell>
+        <Skeleton className="h-4 w-28" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-5 w-16 rounded-4xl" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-4 w-36" />
+      </TableCell>
+      <TableCell>
+        <div className="flex gap-1">
+          <Skeleton className="h-5 w-16 rounded-4xl" />
+        </div>
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-4 w-32" />
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-1">
+          <Skeleton className="size-8 rounded-md" />
+          <Skeleton className="size-8 rounded-md" />
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
 
 function formatExpiry(expiresAt: string): string {
   const seconds = Math.max(
@@ -65,6 +112,7 @@ export function DevicesPage() {
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastLoadedCount, setLastLoadedCount] = useState<number | null>(null)
   const [pairing, setPairing] = useState<PairingCreateResponse | null>(null)
   const [pairingLoading, setPairingLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -84,6 +132,7 @@ export function DevicesPage() {
     try {
       const response = await listDevices()
       setDevices(response.devices)
+      setLastLoadedCount(response.devices.length)
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load devices")
     } finally {
@@ -274,7 +323,20 @@ export function DevicesPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading devices...</p>
+            <Table aria-busy="true" aria-label="Loading devices">
+              <DevicesTableHeader />
+              <TableBody>
+                {Array.from(
+                  {
+                    length:
+                      lastLoadedCount ?? INITIAL_SKELETON_ROWS,
+                  },
+                  (_, index) => (
+                    <DeviceTableSkeletonRow key={index} />
+                  )
+                )}
+              </TableBody>
+            </Table>
           ) : devices.length === 0 ? (
             <div className="space-y-1 text-sm text-muted-foreground">
               <p>No devices registered yet.</p>
@@ -285,16 +347,7 @@ export function DevicesPage() {
             </div>
           ) : (
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Device ID</TableHead>
-                  <TableHead>Features</TableHead>
-                  <TableHead>Last seen</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
+              <DevicesTableHeader />
               <TableBody>
                 {devices.map((device) => (
                   <TableRow key={device.device_id}>

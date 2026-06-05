@@ -6,16 +6,20 @@ edition.workspace = true
 [features]
 default = []
 iroh = ["dep:iroh", "dep:bytes", "dep:rand", "dep:tracing"]
+iroh-blobs = ["iroh", "dep:iroh-blobs", "dep:bytes"]
 
 [dependencies]
 async-trait.workspace = true
+blake3.workspace = true
 bytes = { workspace = true, optional = true }
 failsafe-core.workspace = true
+hex = "0.4"
 iroh = { workspace = true, optional = true }
+iroh-blobs = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "io-util"] }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]

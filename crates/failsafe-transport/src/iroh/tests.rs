@@ -35,6 +35,7 @@ async fn two_transports_exchange_messages() {
     let transport_a = IrohTransport::start(IrohConfig {
         device_id: device_a,
         secret_key_path: key_a.clone(),
+        blob_store_path: temp.path().join("blobs-a"),
         address_book: PeerAddressBook::default(),
     })
     .await
@@ -45,6 +46,7 @@ async fn two_transports_exchange_messages() {
     let transport_b = IrohTransport::start(IrohConfig {
         device_id: device_b,
         secret_key_path: key_b,
+        blob_store_path: temp.path().join("blobs-b"),
         address_book: PeerAddressBook::from_map(addresses_b),
     })
     .await
@@ -57,6 +59,7 @@ async fn two_transports_exchange_messages() {
     let transport_a = IrohTransport::start(IrohConfig {
         device_id: device_a,
         secret_key_path: key_a,
+        blob_store_path: temp.path().join("blobs-a-restart"),
         address_book: PeerAddressBook::from_map(addresses_a),
     })
     .await
@@ -93,6 +96,7 @@ async fn update_peers_connects_to_new_peer() {
     let transport_a = IrohTransport::start(IrohConfig {
         device_id: device_a,
         secret_key_path: temp.path().join("a.key"),
+        blob_store_path: temp.path().join("blobs-a-update"),
         address_book: PeerAddressBook::default(),
     })
     .await
@@ -101,6 +105,7 @@ async fn update_peers_connects_to_new_peer() {
     let transport_b = IrohTransport::start(IrohConfig {
         device_id: device_b,
         secret_key_path: temp.path().join("b.key"),
+        blob_store_path: temp.path().join("blobs-b-update"),
         address_book: PeerAddressBook::default(),
     })
     .await
@@ -124,4 +129,120 @@ async fn update_peers_connects_to_new_peer() {
     wait_for_connection(&transport_b, device_a)
         .await
         .expect("b connects to a after peer update");
+}
+
+#[tokio::test]
+async fn blob_transfer_roundtrips_bytes() {
+    let temp = TempDir::new().expect("tempdir");
+    let device_a = DeviceId::new();
+    let device_b = DeviceId::new();
+
+    let transport_a = IrohTransport::start(IrohConfig {
+        device_id: device_a,
+        secret_key_path: temp.path().join("blob-a.key"),
+        blob_store_path: temp.path().join("blob-store-a"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport a");
+
+    let mut addresses_b = HashMap::new();
+    addresses_b.insert(device_a, transport_a.public_key().to_string());
+
+    let transport_b = IrohTransport::start(IrohConfig {
+        device_id: device_b,
+        secret_key_path: temp.path().join("blob-b.key"),
+        blob_store_path: temp.path().join("blob-store-b"),
+        address_book: PeerAddressBook::from_map(addresses_b),
+    })
+    .await
+    .expect("start transport b");
+
+    let mut addresses_a = HashMap::new();
+    addresses_a.insert(device_b, transport_b.public_key().to_string());
+    transport_a
+        .update_peers(PeerAddressBook::from_map(addresses_a))
+        .expect("update peer addresses on a");
+
+    wait_for_connection(&transport_a, device_b)
+        .await
+        .expect("a connects to b");
+    wait_for_connection(&transport_b, device_a)
+        .await
+        .expect("b connects to a");
+
+    let blob_a = transport_a.blob_transfer();
+    let blob_b = transport_b.blob_transfer();
+
+    let hash = blob_a
+        .store_bytes(b"clipboard image bytes".to_vec())
+        .await
+        .expect("store blob on a");
+
+    let fetched = blob_b
+        .fetch_bytes(device_a, &hash)
+        .await
+        .expect("fetch blob on b");
+
+    assert_eq!(fetched, b"clipboard image bytes");
+}
+
+#[tokio::test]
+async fn blob_transfer_roundtrips_file_collection() {
+    let temp = TempDir::new().expect("tempdir");
+    let device_a = DeviceId::new();
+    let device_b = DeviceId::new();
+
+    let transport_a = IrohTransport::start(IrohConfig {
+        device_id: device_a,
+        secret_key_path: temp.path().join("files-a.key"),
+        blob_store_path: temp.path().join("files-store-a"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport a");
+
+    let mut addresses_b = HashMap::new();
+    addresses_b.insert(device_a, transport_a.public_key().to_string());
+
+    let transport_b = IrohTransport::start(IrohConfig {
+        device_id: device_b,
+        secret_key_path: temp.path().join("files-b.key"),
+        blob_store_path: temp.path().join("files-store-b"),
+        address_book: PeerAddressBook::from_map(addresses_b),
+    })
+    .await
+    .expect("start transport b");
+
+    let mut addresses_a = HashMap::new();
+    addresses_a.insert(device_b, transport_b.public_key().to_string());
+    transport_a
+        .update_peers(PeerAddressBook::from_map(addresses_a))
+        .expect("update peer addresses on a");
+
+    wait_for_connection(&transport_a, device_b)
+        .await
+        .expect("a connects to b");
+    wait_for_connection(&transport_b, device_a)
+        .await
+        .expect("b connects to a");
+
+    let blob_a = transport_a.blob_transfer();
+    let blob_b = transport_b.blob_transfer();
+
+    let files = vec![
+        ("notes.txt".to_owned(), b"hello files".to_vec()),
+        ("data.bin".to_owned(), vec![1, 2, 3, 4]),
+    ];
+    let root = blob_a
+        .store_files(files.clone())
+        .await
+        .expect("store collection on a");
+
+    let fetched = blob_b
+        .fetch_collection_files(device_a, &root)
+        .await
+        .expect("fetch collection on b");
+
+    assert_eq!(fetched, files);
 }
