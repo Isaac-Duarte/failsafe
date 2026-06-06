@@ -12,7 +12,7 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
     encode_envelope, eprint_send, mark_send_complete, mark_send_failed, prepare_send_payload,
-    send_ack_timeout, SendCoordinator, SendEnvelope,
+    send_ack_timeout, SendCoordinator, SendEnvelope, SendProgressReporter,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -358,36 +358,28 @@ impl ControlServer {
             " starting send {transfer_id} -> {target} (resume={resume})"
         ));
 
-        let result = async {
-            let payload = {
-                let progress_tx_for_callback = progress_tx.clone();
-                let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
-                    Box::new(move |phase, bytes_done, bytes_total, current_file| {
-                        let tx = progress_tx_for_callback.clone();
-                        tokio::spawn(async move {
-                            let _ = tx
-                                .send(ControlEvent::SendProgress {
-                                    phase,
-                                    bytes_done,
-                                    bytes_total,
-                                    current_file,
-                                })
-                                .await;
-                        });
-                    });
-                prepare_send_payload(
-                    &paths,
-                    target,
-                    self.blob_transfer.clone(),
-                    self.send_limits,
-                    self.device_name.clone(),
-                    transfer_id,
-                    resume,
-                    &cancel,
-                    &mut emit_progress,
-                )
-                .await?
-            };
+        let progress = SendProgressReporter::new(progress_tx.clone());
+
+        let mut result = async {
+            let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
+                Box::new({
+                    let progress = progress.clone();
+                    move |phase, bytes_done, bytes_total, current_file| {
+                        progress.try_emit(phase, bytes_done, bytes_total, current_file);
+                    }
+                });
+            let payload = prepare_send_payload(
+                &paths,
+                target,
+                self.blob_transfer.clone(),
+                self.send_limits,
+                self.device_name.clone(),
+                transfer_id,
+                resume,
+                &cancel,
+                &mut emit_progress,
+            )
+            .await?;
 
             if cancel.is_cancelled() {
                 return Err("transfer cancelled".to_owned());
@@ -395,14 +387,18 @@ impl ControlServer {
 
             let total_bytes = payload.entries.iter().map(|entry| entry.size).sum::<u64>();
 
-            let _ = progress_tx
-                .send(ControlEvent::SendProgress {
-                    phase: SendPhase::Sending,
-                    bytes_done: total_bytes,
-                    bytes_total: total_bytes,
-                    current_file: None,
-                })
+            progress
+                .emit(
+                    SendPhase::Sending,
+                    total_bytes,
+                    total_bytes,
+                    None,
+                )
                 .await;
+
+            if cancel.is_cancelled() {
+                return Err("transfer cancelled".to_owned());
+            }
 
             let local_id = self.transport.local_device_id();
             let envelope = SendEnvelope::Transfer(payload);
@@ -419,13 +415,13 @@ impl ControlServer {
                 .map_err(|error| error.to_string())?;
             debug!(%transfer_id, "transfer metadata message sent");
 
-            let _ = progress_tx
-                .send(ControlEvent::SendProgress {
-                    phase: SendPhase::WaitingForAck,
-                    bytes_done: total_bytes,
-                    bytes_total: total_bytes,
-                    current_file: None,
-                })
+            progress
+                .emit(
+                    SendPhase::WaitingForAck,
+                    0,
+                    total_bytes,
+                    None,
+                )
                 .await;
             drop(progress_tx);
 
@@ -434,31 +430,37 @@ impl ControlServer {
             eprint_send(format_args!(
                 " waiting for ack transfer_id={transfer_id} target={target}"
             ));
-            match tokio::time::timeout(ack_timeout, ack_rx).await {
-                Ok(Ok(Ok(()))) => {
-                    info!(%transfer_id, %target, "receiver acknowledged file transfer");
-                    eprint_send(format_args!(" ack received for {transfer_id}"));
-                    Ok(())
-                }
-                Ok(Ok(Err(message))) => {
-                    warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
-                    Err(message)
-                }
-                Ok(Err(_)) => {
-                    warn!(%transfer_id, %target, "acknowledgement channel closed before response");
-                    Err("transfer acknowledgement channel closed".to_owned())
-                }
-                Err(_) => {
-                    warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
-                    eprint_send(format_args!(" ack timeout for {transfer_id}"));
-                    Err("timed out waiting for receiver acknowledgement".to_owned())
-                }
+            tokio::select! {
+                _ = cancel.cancelled() => Err("transfer cancelled".to_owned()),
+                ack_result = tokio::time::timeout(ack_timeout, ack_rx) => match ack_result {
+                    Ok(Ok(Ok(()))) => {
+                        info!(%transfer_id, %target, "receiver acknowledged file transfer");
+                        eprint_send(format_args!(" ack received for {transfer_id}"));
+                        Ok(())
+                    }
+                    Ok(Ok(Err(message))) => {
+                        warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
+                        Err(message)
+                    }
+                    Ok(Err(_)) => {
+                        warn!(%transfer_id, %target, "acknowledgement channel closed before response");
+                        Err("transfer acknowledgement channel closed".to_owned())
+                    }
+                    Err(_) => {
+                        warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
+                        eprint_send(format_args!(" ack timeout for {transfer_id}"));
+                        Err("timed out waiting for receiver acknowledgement".to_owned())
+                    }
+                },
             }
         }
         .await;
 
         if cancel.is_cancelled() {
             self.coordinator.cancel(transfer_id).await;
+            if !matches!(&result, Err(message) if message == "transfer cancelled") {
+                result = Err("transfer cancelled".to_owned());
+            }
         }
 
         let mut write_half = progress_writer.await.unwrap_or_else(|_| {

@@ -57,10 +57,23 @@ pub enum SendPhase {
     WaitingForAck,
 }
 
+/// User-facing label for a send progress phase in the CLI.
+pub fn send_phase_label(phase: SendPhase, current_file: Option<&str>) -> String {
+    match phase {
+        SendPhase::Preparing => current_file
+            .map(|name| format!("Reading {name}"))
+            .unwrap_or_else(|| "Staging files locally".to_owned()),
+        SendPhase::Storing => "Finalizing".to_owned(),
+        SendPhase::Sending => "Starting transfer".to_owned(),
+        SendPhase::WaitingForAck => "Transferring to receiver".to_owned(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ControlEvent {
     SendProgress {
+        sequence: u64,
         phase: SendPhase,
         bytes_done: u64,
         bytes_total: u64,
@@ -179,4 +192,25 @@ where
 
 pub async fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {
     remove_stale_control_endpoint(path).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_phase_labels_match_workflow() {
+        assert_eq!(
+            send_phase_label(SendPhase::Preparing, None),
+            "Staging files locally"
+        );
+        assert_eq!(
+            send_phase_label(SendPhase::Preparing, Some("doc.txt")),
+            "Reading doc.txt"
+        );
+        assert_eq!(
+            send_phase_label(SendPhase::WaitingForAck, None),
+            "Transferring to receiver"
+        );
+    }
 }

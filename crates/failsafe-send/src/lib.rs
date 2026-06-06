@@ -6,6 +6,7 @@ mod inbound;
 mod notify;
 mod outbound;
 mod payload;
+mod progress;
 mod resume;
 mod timeout;
 mod transfer_state;
@@ -19,6 +20,7 @@ pub use feature::SendFeature;
 pub use files::{collect_file_preview, collect_import_sources, format_bytes, read_files_from_paths};
 pub use inbound::save_received_files;
 pub use outbound::{mark_send_complete, mark_send_failed, prepare_send_payload};
+pub use progress::SendProgressReporter;
 pub use payload::{
     decode_envelope, encode_envelope, parse_ack, FileEntry, SendAck, SendEnvelope, SendPayload,
     SEND_PAYLOAD_VERSION,

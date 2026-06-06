@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::SendPhase;
-use failsafe_transport::blobs::{BlobHash, BlobTransfer};
+use failsafe_transport::blobs::{BlobHash, BlobProgress, BlobTransfer};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -86,18 +86,23 @@ pub async fn prepare_send_payload(
 
         progress(SendPhase::Preparing, 0, total_bytes, None);
         let sources = collect_import_sources(&send_paths)?;
-        let (hash, imported) = blob_transfer
-            .import_sources(&sources, &mut |blob_progress| {
-                state.bytes_done = blob_progress.bytes_done;
+        let (hash, imported) = {
+            let mut on_import_progress = |blob_progress: BlobProgress| {
                 progress(
                     SendPhase::Preparing,
                     blob_progress.bytes_done,
                     blob_progress.bytes_total,
                     blob_progress.current_file,
                 );
-            })
-            .await
-            .map_err(|error| error.to_string())?;
+            };
+            let mut import_future = Box::pin(
+                blob_transfer.import_sources(&sources, &mut on_import_progress),
+            );
+            tokio::select! {
+                _ = cancel.cancelled() => return Err("transfer cancelled".to_owned()),
+                result = import_future.as_mut() => result.map_err(|error| error.to_string())?,
+            }
+        };
 
         collection_hash = Some(hash.as_str().to_owned());
         entries = imported

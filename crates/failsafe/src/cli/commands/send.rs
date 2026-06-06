@@ -1,9 +1,10 @@
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use failsafe::DaemonError;
 use failsafe_core::control::connect_control;
-use failsafe_core::control::{ControlEvent, SendPhase};
+use failsafe_core::control::{send_phase_label, ControlEvent, SendPhase};
 use failsafe_send::{
     collect_file_preview, format_bytes, list_incomplete_sends, load_send_state,
 };
@@ -137,35 +138,54 @@ pub async fn send(
         .progress_chars("##-"),
     );
 
+    let mut last_sequence = 0u64;
+    let mut transfer_total_bytes = total_bytes;
+
     loop {
         let event = read_event(&mut stream).await.map_err(DaemonError::Control)?;
         match event {
             ControlEvent::SendProgress {
+                sequence,
                 phase,
                 bytes_done,
                 bytes_total,
                 current_file,
             } => {
-                let label = match phase {
-                    SendPhase::Preparing => current_file
-                        .map(|name| format!("Importing {name}"))
-                        .unwrap_or_else(|| "Importing files".to_owned()),
-                    SendPhase::Storing => "Finalizing".to_owned(),
-                    SendPhase::Sending => "Sending".to_owned(),
-                    SendPhase::WaitingForAck => "Waiting for receiver".to_owned(),
-                };
-                if bytes_total > 0 {
-                    progress.set_length(bytes_total);
-                    progress.set_position(bytes_done.min(bytes_total));
+                if sequence <= last_sequence {
+                    continue;
+                }
+                last_sequence = sequence;
+
+                let label = send_phase_label(phase, current_file.as_deref());
+                match phase {
+                    SendPhase::WaitingForAck => {
+                        transfer_total_bytes = bytes_total.max(transfer_total_bytes);
+                        progress.set_length(transfer_total_bytes.max(1));
+                        progress.set_position(0);
+                        progress.enable_steady_tick(Duration::from_millis(100));
+                    }
+                    _ => {
+                        progress.disable_steady_tick();
+                        if bytes_total > 0 {
+                            progress.set_length(bytes_total);
+                            progress.set_position(bytes_done.min(bytes_total));
+                        }
+                    }
                 }
                 progress.set_message(label);
             }
             ControlEvent::SendComplete { .. } => {
+                progress.disable_steady_tick();
                 progress.finish_with_message("done");
                 println!("Sent to {}", target.name);
                 return Ok(());
             }
             ControlEvent::SendFailed { message } => {
+                progress.disable_steady_tick();
+                if message == "transfer cancelled" {
+                    progress.abandon_with_message("cancelled");
+                    return Err(DaemonError::Config(message));
+                }
                 progress.abandon_with_message("failed");
                 return Err(DaemonError::Config(format!(
                     "{message}\nResume with: failsafe send --resume {transfer_id}"

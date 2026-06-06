@@ -2,7 +2,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 pub use failsafe_core::control::{
-    read_event, write_event, ControlEvent, ControlRequest, ControlResponse, SendPhase,
+    read_event, send_phase_label, write_event, ControlEvent, ControlRequest, ControlResponse,
+    SendPhase,
 };
 use failsafe_core::control::ControlError;
 use failsafe_core::control::ControlStream;
