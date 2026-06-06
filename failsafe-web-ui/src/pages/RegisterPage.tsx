@@ -37,6 +37,9 @@ export function RegisterPage() {
 
     try {
       const response = await register({ email, password })
+      if (!response.token || !response.refresh_token) {
+        throw new Error("Registration succeeded but no session was returned")
+      }
       setTokens(response.token, response.refresh_token)
       navigate("/devices", { replace: true })
     } catch (err) {

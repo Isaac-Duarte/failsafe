@@ -1,43 +1,73 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { getAccount } from "@/lib/api"
 import { isAuthenticated } from "@/lib/auth"
 
 export function useAccount() {
   const [email, setEmail] = useState<string | null>(null)
+  const [totpEnabled, setTotpEnabled] = useState(false)
   const [loading, setLoading] = useState(isAuthenticated())
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!isAuthenticated()) {
       setEmail(null)
+      setTotpEnabled(false)
       setLoading(false)
       return
     }
 
-    let cancelled = false
     setLoading(true)
+    try {
+      const account = await getAccount()
+      setEmail(account.email)
+      setTotpEnabled(account.totp_enabled)
+    } catch {
+      setEmail(null)
+      setTotpEnabled(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-    void getAccount()
-      .then((account) => {
-        if (!cancelled) {
-          setEmail(account.email)
-        }
-      })
-      .catch(() => {
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      if (!isAuthenticated()) {
         if (!cancelled) {
           setEmail(null)
+          setTotpEnabled(false)
+          setLoading(false)
         }
-      })
-      .finally(() => {
+        return
+      }
+
+      if (!cancelled) {
+        setLoading(true)
+      }
+
+      try {
+        const account = await getAccount()
+        if (!cancelled) {
+          setEmail(account.email)
+          setTotpEnabled(account.totp_enabled)
+        }
+      } catch {
+        if (!cancelled) {
+          setEmail(null)
+          setTotpEnabled(false)
+        }
+      } finally {
         if (!cancelled) {
           setLoading(false)
         }
-      })
+      }
+    })()
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  return { email, loading }
+  return { email, totpEnabled, loading, refresh }
 }

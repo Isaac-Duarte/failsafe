@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
-import { ChevronDown, LogOut, Monitor } from "lucide-react"
+import { ChevronDown, LogOut, Monitor, User } from "lucide-react"
 
 import {
   AppShell,
@@ -73,6 +73,10 @@ export function AppLayout() {
               <DropdownMenuItem onClick={() => navigate("/devices")}>
                 <Monitor />
                 Devices
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/account")}>
+                <User />
+                Account
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={handleLogout}>

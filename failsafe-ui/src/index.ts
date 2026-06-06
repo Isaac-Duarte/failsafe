@@ -71,9 +71,11 @@ export type {
   ApiError,
   AuthLoginRequest,
   AuthLogoutRequest,
+  AuthMfaLoginRequest,
   AuthRefreshRequest,
   AuthRegisterRequest,
   AuthResponse,
+  ChangePasswordRequest,
   DeviceId,
   DeviceInfo,
   DeviceListResponse,
@@ -82,5 +84,9 @@ export type {
   FeatureId,
   PairingCreateResponse,
   PairingRedeemRequest,
+  TotpDisableRequest,
+  TotpEnableRequest,
+  TotpEnableResponse,
+  TotpSetupResponse,
 } from "./lib/bindings"
 export { cn } from "./lib/utils"

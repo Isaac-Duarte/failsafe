@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@failsafe/ui"
 import { Button } from "@failsafe/ui"
 import { Input } from "@failsafe/ui"
 import { Label } from "@failsafe/ui"
-import { login } from "@/lib/api"
+import { login, loginMfa } from "@/lib/api"
 import { setTokens } from "@/lib/auth"
 
 export function LoginPage() {
@@ -22,6 +22,8 @@ export function LoginPage() {
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -32,6 +34,19 @@ export function LoginPage() {
 
     try {
       const response = await login({ email, password })
+
+      if (response.mfa_required) {
+        if (!response.mfa_token) {
+          throw new Error("Two-factor authentication is required but no challenge was returned")
+        }
+        setMfaToken(response.mfa_token)
+        return
+      }
+
+      if (!response.token || !response.refresh_token) {
+        throw new Error("Sign-in succeeded but no session was returned")
+      }
+
       setTokens(response.token, response.refresh_token)
       navigate(redirectTo, { replace: true })
     } catch (err) {
@@ -39,6 +54,86 @@ export function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleMfaSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!mfaToken) {
+      return
+    }
+
+    setError(null)
+    setLoading(true)
+
+    try {
+      const response = await loginMfa({
+        mfa_token: mfaToken,
+        code: mfaCode,
+      })
+
+      if (!response.token || !response.refresh_token) {
+        throw new Error("Verification succeeded but no session was returned")
+      }
+
+      setTokens(response.token, response.refresh_token)
+      navigate(redirectTo, { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't verify code")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (mfaToken) {
+    return (
+      <AuthCard
+        title="Two-factor authentication"
+        description="Enter the 6-digit code from your authenticator app."
+        footer={
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="text-primary underline-offset-4 hover:underline"
+              onClick={() => {
+                setMfaToken(null)
+                setMfaCode("")
+                setError(null)
+              }}
+            >
+              Back to sign in
+            </button>
+          </p>
+        }
+      >
+        <form className="space-y-4" onSubmit={handleMfaSubmit}>
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor="mfa-code">Authentication code</Label>
+            <Input
+              id="mfa-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              required
+              autoFocus
+              value={mfaCode}
+              onChange={(event) => setMfaCode(event.target.value)}
+              disabled={loading}
+              placeholder="000000"
+            />
+          </div>
+          <Button className="w-full" type="submit" disabled={loading}>
+            {loading ? <Loader2 className="animate-spin" /> : null}
+            {loading ? "Verifying..." : "Verify"}
+          </Button>
+        </form>
+      </AuthCard>
+    )
   }
 
   return (

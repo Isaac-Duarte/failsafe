@@ -8,6 +8,7 @@ import { DevicesPage } from "@/pages/DevicesPage"
 import { LandingPage } from "@/pages/LandingPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { NotFoundPage } from "@/pages/NotFoundPage"
+import { AccountPage } from "@/pages/AccountPage"
 import { RegisterPage } from "@/pages/RegisterPage"
 
 export function App() {
@@ -38,6 +39,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <DevicesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/account"
+            element={
+              <ProtectedRoute>
+                <AccountPage />
               </ProtectedRoute>
             }
           />

@@ -34,7 +34,7 @@ export type AuthRegisterRequest = {
 export type AuthResponse = {
 	token: string | null,
 	refresh_token: string | null,
-	mfa_required: boolean,
+	mfa_required?: boolean,
 	mfa_token: string | null,
 };
 

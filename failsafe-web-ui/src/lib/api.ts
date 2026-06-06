@@ -5,13 +5,19 @@ import type {
   ApiError,
   AuthLoginRequest,
   AuthLogoutRequest,
+  AuthMfaLoginRequest,
   AuthRefreshRequest,
   AuthRegisterRequest,
   AuthResponse,
+  ChangePasswordRequest,
   DeviceInfo,
   DeviceListResponse,
   DevicePatchRequest,
   PairingCreateResponse,
+  TotpDisableRequest,
+  TotpEnableRequest,
+  TotpEnableResponse,
+  TotpSetupResponse,
 } from "@failsafe/ui"
 
 export class ApiRequestError extends Error {
@@ -50,6 +56,9 @@ async function refreshTokens(): Promise<boolean> {
   }
 
   const body = (await response.json()) as AuthResponse
+  if (!body.token || !body.refresh_token) {
+    return false
+  }
   setTokens(body.token, body.refresh_token)
   return true
 }
@@ -96,6 +105,49 @@ export async function login(request: AuthLoginRequest): Promise<AuthResponse> {
     body: JSON.stringify(request),
   })
   return parseResponse(response)
+}
+
+export async function loginMfa(request: AuthMfaLoginRequest): Promise<AuthResponse> {
+  const response = await fetch("/api/v1/auth/login/mfa", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+  })
+  return parseResponse(response)
+}
+
+export async function changePassword(request: ChangePasswordRequest): Promise<void> {
+  const response = await authFetch("/api/v1/auth/password", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+  })
+  await parseResponse(response)
+}
+
+export async function setupTotp(): Promise<TotpSetupResponse> {
+  const response = await authFetch("/api/v1/auth/2fa/setup", {
+    method: "POST",
+  })
+  return parseResponse(response)
+}
+
+export async function enableTotp(request: TotpEnableRequest): Promise<TotpEnableResponse> {
+  const response = await authFetch("/api/v1/auth/2fa/enable", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+  })
+  return parseResponse(response)
+}
+
+export async function disableTotp(request: TotpDisableRequest): Promise<void> {
+  const response = await authFetch("/api/v1/auth/2fa/disable", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+  })
+  await parseResponse(response)
 }
 
 export async function logout(): Promise<void> {
