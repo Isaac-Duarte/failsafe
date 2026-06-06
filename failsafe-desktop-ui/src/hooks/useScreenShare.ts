@@ -30,7 +30,8 @@ function drawJpegToCanvas(
   canvas: HTMLCanvasElement,
   jpeg: Uint8Array
 ): Promise<void> {
-  const blob = new Blob([jpeg], { type: "image/jpeg" })
+  const bytes = new Uint8Array(jpeg)
+  const blob = new Blob([bytes], { type: "image/jpeg" })
   return createImageBitmap(blob).then((bitmap) => {
     if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
       canvas.width = bitmap.width
