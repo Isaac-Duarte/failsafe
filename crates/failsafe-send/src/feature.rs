@@ -8,6 +8,7 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::coordinator::SendCoordinator;
 use crate::inbound::receive_dir;
@@ -47,6 +48,23 @@ impl SendFeature {
         mut state: ReceiveTransferState,
     ) -> Result<(), String> {
         self.run_receive(blob_transfer, &mut state).await
+    }
+
+    pub async fn acknowledge_completed_receive(
+        &self,
+        sender: DeviceId,
+        transfer_id: Uuid,
+    ) -> Result<(), String> {
+        self.send_ack(
+            sender,
+            SendAck {
+                transfer_id,
+                ok: true,
+                error: None,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())
     }
 
     async fn handle_transfer(

@@ -358,7 +358,7 @@ impl ControlServer {
         let progress_tx_for_callback = progress_tx.clone();
         let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
             Box::new(move |phase, bytes_done, bytes_total, current_file| {
-                let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
+                let _ = progress_tx_for_callback.blocking_send(ControlEvent::SendProgress {
                     phase,
                     bytes_done,
                     bytes_total,
@@ -390,24 +390,41 @@ impl ControlServer {
 
             let local_id = self.transport.local_device_id();
             let envelope = SendEnvelope::Transfer(payload);
-            self.transport
-                .send(FeatureMessage::new(
-                    local_id,
-                    target,
-                    FeatureId::FileSend,
-                    encode_envelope(&envelope),
-                ))
-                .await
-                .map_err(|error| error.to_string())?;
+            let transfer_message = FeatureMessage::new(
+                local_id,
+                target,
+                FeatureId::FileSend,
+                encode_envelope(&envelope),
+            );
+            let transport = self.transport.clone();
+            let send_task = tokio::spawn(async move {
+                transport
+                    .send(transfer_message)
+                    .await
+                    .map_err(|error| error.to_string())
+            });
 
             emit_progress(SendPhase::WaitingForAck, 0, 0, None);
             drop(progress_tx);
 
             match tokio::time::timeout(SEND_ACK_TIMEOUT, ack_rx).await {
-                Ok(Ok(Ok(()))) => Ok(()),
-                Ok(Ok(Err(message))) => Err(message),
-                Ok(Err(_)) => Err("transfer acknowledgement channel closed".to_owned()),
-                Err(_) => Err("timed out waiting for receiver acknowledgement".to_owned()),
+                Ok(Ok(Ok(()))) => {
+                    send_task.abort();
+                    Ok(())
+                }
+                Ok(Ok(Err(message))) => {
+                    send_task.abort();
+                    Err(message)
+                }
+                Ok(Err(_)) => {
+                    send_task.abort();
+                    Err("transfer acknowledgement channel closed".to_owned())
+                }
+                Err(_) => match send_task.await {
+                    Ok(Err(message)) => Err(message),
+                    Ok(Ok(())) => Err("timed out waiting for receiver acknowledgement".to_owned()),
+                    Err(_) => Err("transfer send task failed".to_owned()),
+                },
             }
         }
         .await;

@@ -233,10 +233,15 @@ impl Transport for IrohTransport {
             .ok_or(TransportError::PeerNotFound(message.to))?;
 
         let frame = codec::encode(&message)?;
-        let (mut send, _recv) = connection
+        let (mut send, recv) = connection
             .open_bi()
             .await
             .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        // Drain the receive half so `finish()` cannot block waiting on flow control.
+        tokio::spawn(async move {
+            drop(recv);
+        });
 
         send.write_all(&frame)
             .await

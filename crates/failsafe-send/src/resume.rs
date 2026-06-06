@@ -31,17 +31,25 @@ pub async fn resume_incomplete_receives(
             continue;
         }
         let transfer_id = state.transfer_id;
+        let sender = state.sender;
         info!(
             %transfer_id,
-            sender = %state.sender,
+            sender = %sender,
             stage = ?state.stage,
             "resuming incomplete file receive"
         );
-        if let Err(error) = feature
-            .resume_receive(blob_transfer.clone(), state)
-            .await
-        {
-            warn!(%transfer_id, "failed to resume receive: {error}");
+        match feature.resume_receive(blob_transfer.clone(), state).await {
+            Ok(()) => {
+                if let Err(error) = feature
+                    .acknowledge_completed_receive(sender, transfer_id)
+                    .await
+                {
+                    warn!(%transfer_id, "failed to send receive acknowledgement: {error}");
+                }
+            }
+            Err(error) => {
+                warn!(%transfer_id, "failed to resume receive: {error}");
+            }
         }
     }
 }
