@@ -10,12 +10,14 @@
     "frontendDist": "../../failsafe-desktop-ui/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Failsafe",
         "width": 1100,
         "height": 760,
-        "resizable": true
+        "resizable": true,
+        "transparent": true
       }
     ],
     "security": {

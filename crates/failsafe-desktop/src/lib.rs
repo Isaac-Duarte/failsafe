@@ -1,25 +1,27 @@
+mod screen_renderer;
+
 use std::str::FromStr;
+use std::sync::Arc;
 
 use failsafe_core::device::DeviceId;
 use failsafe_screen::ScreenViewerClient;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use screen_renderer::ScreenRenderer;
+use tauri::{async_runtime, AppHandle, Emitter, Manager, RunEvent, State, WebviewWindow, WindowEvent};
 use tokio::sync::Mutex;
+use tracing::warn;
 
 struct ScreenShareRuntime {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    renderer: Arc<ScreenRenderer>,
 }
 
 impl ScreenShareRuntime {
-    fn new() -> Self {
+    fn new(renderer: Arc<ScreenRenderer>) -> Self {
         Self {
             task: Mutex::new(None),
+            renderer,
         }
     }
-}
-
-#[derive(Clone, serde::Serialize)]
-struct ScreenFramePayload {
-    jpeg: Vec<u8>,
 }
 
 fn launch_args() -> (Option<String>, Option<String>) {
@@ -72,12 +74,24 @@ async fn start_screen_share(
         }
     }
 
+    let renderer = runtime.renderer.clone();
     let app_handle = app.clone();
     let task = tokio::spawn(async move {
         let mut frames = client.frames;
         while let Some(jpeg) = frames.recv().await {
-            let payload = ScreenFramePayload { jpeg };
-            if app_handle.emit("screen-frame", payload).is_err() {
+            let renderer = renderer.clone();
+            let render_ok = app_handle
+                .run_on_main_thread(move || {
+                    if let Err(error) = renderer.submit_jpeg(&jpeg) {
+                        warn!("failed to decode screen frame: {error}");
+                        return;
+                    }
+                    if let Err(error) = renderer.render() {
+                        warn!("failed to render screen frame: {error}");
+                    }
+                })
+                .is_ok();
+            if !render_ok {
                 break;
             }
         }
@@ -99,18 +113,34 @@ async fn stop_screen_share(runtime: State<'_, ScreenShareRuntime>) -> Result<(),
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(ScreenShareRuntime::new())
         .invoke_handler(tauri::generate_handler![start_screen_share, stop_screen_share])
         .setup(|app| {
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window not found".to_owned())?;
+            let renderer = async_runtime::block_on(ScreenRenderer::new(window))
+                .map_err(|error| error.to_string())?;
+            app.manage(ScreenShareRuntime::new(Arc::new(renderer)));
+
             let (device_id, device_name) = launch_args();
-            if let (Some(device_id), Some(window)) = (
-                device_id,
-                app.get_webview_window("main"),
-            ) {
-                navigate_to_screen_share(&window, &device_id, device_name.as_deref())?;
+            if let Some(device_id) = device_id {
+                if let Some(window) = app.get_webview_window("main") {
+                    navigate_to_screen_share(&window, &device_id, device_name.as_deref())?;
+                }
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            if let RunEvent::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } = event
+            {
+                if let Some(runtime) = app_handle.try_state::<ScreenShareRuntime>() {
+                    runtime.renderer.resize(size.width, size.height);
+                }
+            }
+        });
 }

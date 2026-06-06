@@ -1,4 +1,5 @@
 mod capture;
+mod gpu;
 mod host;
 mod protocol;
 mod viewer_client;
