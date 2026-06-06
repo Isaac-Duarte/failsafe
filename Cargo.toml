@@ -68,6 +68,7 @@ inquire = "0.9"
 indicatif = "0.17"
 notify-rust = "4"
 tokio-util = { version = "0.7", features = ["rt"] }
+walkdir = "2"
 specta = { version = "2.0.0-rc.25", features = ["derive", "uuid"] }
 specta-typescript = "0.0.12"
 specta-serde = "0.0.12"

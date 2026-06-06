@@ -1849,6 +1849,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
@@ -1907,6 +1908,7 @@ dependencies = [
  "hex",
  "iroh",
  "iroh-blobs",
+ "n0-future",
  "rand 0.9.4",
  "serde_json",
  "tempfile",

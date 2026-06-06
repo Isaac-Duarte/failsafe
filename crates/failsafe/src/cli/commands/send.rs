@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use failsafe::DaemonError;
 use failsafe_core::control::connect_control;
 use failsafe_core::control::{ControlEvent, SendPhase};
-use failsafe_send::{collect_file_preview, format_bytes};
+use failsafe_send::{
+    collect_file_preview, format_bytes, list_incomplete_sends, load_send_state,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Confirm;
 use uuid::Uuid;
@@ -22,23 +24,43 @@ pub async fn send(
     config_path: Option<PathBuf>,
     server_url: Option<String>,
     paths: Vec<PathBuf>,
+    resume: Option<Uuid>,
     device: Option<String>,
     yes: bool,
 ) -> Result<(), DaemonError> {
-    if paths.is_empty() {
-        return Err(DaemonError::Config(
-            "at least one file or directory path is required".to_owned(),
-        ));
+    if resume.is_none() && paths.is_empty() {
+        return list_incomplete().await;
     }
+
+    let (transfer_id, resume_send, paths, target_device) = if let Some(transfer_id) = resume {
+        let state = load_send_state(transfer_id)
+            .await
+            .map_err(DaemonError::Config)?;
+        (transfer_id, true, state.paths, Some(state.target))
+    } else {
+        (Uuid::new_v4(), false, paths, None)
+    };
 
     let path = config_path_or_default(config_path)?;
     let config = load_config(&path, server_url.clone(), false)?;
     let client = server_client_from_config(Some(path), server_url).await?;
     let response = client.list_devices().await?;
 
-    let target = match device {
-        Some(name) => resolve_device_target(&name, config.device_id, &response.devices)?,
-        None => select_device_interactive(config.device_id, &response.devices)?,
+    let target = match (device, target_device) {
+        (Some(name), _) => resolve_device_target(&name, config.device_id, &response.devices)?,
+        (None, Some(device_id)) => {
+            let device = response
+                .devices
+                .iter()
+                .find(|entry| entry.device_id == device_id)
+                .ok_or_else(|| {
+                    DaemonError::Config(format!(
+                        "resume target device {device_id} is not in your device list"
+                    ))
+                })?;
+            resolve_device_target(&device.name, config.device_id, &response.devices)?
+        }
+        (None, None) => select_device_interactive(config.device_id, &response.devices)?,
     };
 
     if !target.online {
@@ -48,9 +70,12 @@ pub async fn send(
         )));
     }
 
-    let previews = collect_file_preview(&paths)
-        .map_err(|error| DaemonError::Config(error))?;
+    let previews = collect_file_preview(&paths).map_err(DaemonError::Config)?;
     let total_bytes: u64 = previews.iter().map(|preview| preview.size).sum();
+
+    if resume_send {
+        println!("Resuming send {transfer_id}");
+    }
 
     println!("Files to send:");
     for preview in &previews {
@@ -81,7 +106,6 @@ pub async fn send(
         }
     }
 
-    let transfer_id = Uuid::new_v4();
     let mut stream = connect_control(&control_socket_path()?)
         .await
         .map_err(map_control_connect_error)?;
@@ -92,6 +116,7 @@ pub async fn send(
             target: target.device_id,
             paths,
             transfer_id,
+            resume: resume_send,
         },
     )
     .await?;
@@ -123,9 +148,9 @@ pub async fn send(
             } => {
                 let label = match phase {
                     SendPhase::Preparing => current_file
-                        .map(|name| format!("Reading {name}"))
-                        .unwrap_or_else(|| "Reading files".to_owned()),
-                    SendPhase::Storing => "Storing".to_owned(),
+                        .map(|name| format!("Importing {name}"))
+                        .unwrap_or_else(|| "Importing files".to_owned()),
+                    SendPhase::Storing => "Finalizing".to_owned(),
                     SendPhase::Sending => "Sending".to_owned(),
                     SendPhase::WaitingForAck => "Waiting for receiver".to_owned(),
                 };
@@ -140,8 +165,34 @@ pub async fn send(
             }
             ControlEvent::SendFailed { message } => {
                 progress.abandon_with_message("failed");
-                return Err(DaemonError::Config(message));
+                return Err(DaemonError::Config(format!(
+                    "{message}\nResume with: failsafe send --resume {transfer_id}"
+                )));
             }
         }
     }
+}
+
+async fn list_incomplete() -> Result<(), DaemonError> {
+    let transfers = list_incomplete_sends()
+        .await
+        .map_err(DaemonError::Config)?;
+    if transfers.is_empty() {
+        println!("No incomplete sends.");
+        return Ok(());
+    }
+
+    println!("Incomplete sends:");
+    for transfer in transfers {
+        println!(
+            "  {} -> {} ({} files, {}, stage: {:?})",
+            transfer.transfer_id,
+            transfer.target,
+            transfer.entries.len(),
+            format_bytes(transfer.bytes_total),
+            transfer.stage
+        );
+        println!("    resume: failsafe send --resume {}", transfer.transfer_id);
+    }
+    Ok(())
 }

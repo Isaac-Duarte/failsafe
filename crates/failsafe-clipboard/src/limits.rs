@@ -35,6 +35,26 @@ impl ClipboardLimits {
         Ok(())
     }
 
+    pub fn validate_entries(&self, entries: &[(String, u64)]) -> Result<(), String> {
+        let mut total = 0u64;
+        for (name, size) in entries {
+            if *size > self.max_file_bytes {
+                return Err(format!(
+                    "file `{name}` exceeds limit of {} bytes",
+                    self.max_file_bytes
+                ));
+            }
+            total = total.saturating_add(*size);
+        }
+        if total > self.max_total_bytes {
+            return Err(format!(
+                "files exceed total limit of {} bytes",
+                self.max_total_bytes
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate_blob(&self, size: usize) -> Result<(), String> {
         if size as u64 > self.max_file_bytes {
             return Err(format!(

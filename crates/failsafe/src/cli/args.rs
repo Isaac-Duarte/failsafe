@@ -81,8 +81,10 @@ pub enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Files or directories to send.
-        #[arg(required = true)]
         paths: Vec<PathBuf>,
+        /// Resume an interrupted send by transfer ID.
+        #[arg(long)]
+        resume: Option<uuid::Uuid>,
         /// Device name or ID. Omit for interactive selection.
         #[arg(long)]
         device: Option<String>,

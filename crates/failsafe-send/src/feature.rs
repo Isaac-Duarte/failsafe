@@ -5,14 +5,19 @@ use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::{Feature, FeatureError, FeatureId};
 use failsafe_core::message::FeatureMessage;
-use failsafe_transport::blobs::BlobTransfer;
+use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
 use tracing::info;
 
 use crate::coordinator::SendCoordinator;
-use crate::inbound::save_received_files;
+use crate::inbound::receive_dir;
 use crate::notify::notify_files_received;
 use crate::payload::{decode_envelope, encode_envelope, SendAck, SendEnvelope};
+use crate::resume::receive_state_from_payload;
+use crate::transfer_state::{
+    load_receive_state, remove_receive_state, save_receive_state, ReceiveStage,
+    ReceiveTransferState,
+};
 
 pub struct SendFeature {
     blob_transfer: Arc<dyn BlobTransfer>,
@@ -36,42 +41,46 @@ impl SendFeature {
         }
     }
 
+    pub async fn resume_receive(
+        &self,
+        blob_transfer: Arc<dyn BlobTransfer>,
+        mut state: ReceiveTransferState,
+    ) -> Result<(), String> {
+        self.run_receive(blob_transfer, &mut state).await
+    }
+
     async fn handle_transfer(
         &self,
         from: DeviceId,
         payload: crate::payload::SendPayload,
     ) -> Result<(), FeatureError> {
-        let files = self
-            .blob_transfer
-            .fetch_collection_files(
-                from,
-                &failsafe_transport::blobs::BlobHash::from(payload.collection_hash.as_str()),
-            )
+        let mut state = match load_receive_state(payload.transfer_id).await {
+            Ok(saved) => saved,
+            Err(_) => receive_state_from_payload(from, &payload),
+        };
+
+        if state.stage == ReceiveStage::Complete {
+            return self
+                .send_ack(
+                    from,
+                    SendAck {
+                        transfer_id: payload.transfer_id,
+                        ok: true,
+                        error: None,
+                    },
+                )
+                .await;
+        }
+
+        state.sender = from;
+        state.sender_name = payload.sender_name.clone();
+        state.collection_hash = payload.collection_hash.clone();
+        state.entries = payload.entries.clone();
+        state.bytes_total = payload.entries.iter().map(|entry| entry.size).sum();
+
+        self.run_receive(self.blob_transfer.clone(), &mut state)
             .await
-            .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error.to_string()))?;
-
-        self.limits
-            .validate_files(&files)
             .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error))?;
-
-        let paths = save_received_files(&payload.sender_name, payload.transfer_id, &files)
-            .await
-            .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error))?;
-
-        let destination = paths
-            .first()
-            .and_then(|path| path.parent())
-            .map(|path| path.to_path_buf())
-            .unwrap_or_default();
-
-        notify_files_received(&payload.sender_name, paths.len(), &destination);
-
-        info!(
-            %from,
-            transfer_id = %payload.transfer_id,
-            count = paths.len(),
-            "received file send"
-        );
 
         self.send_ack(
             from,
@@ -82,6 +91,69 @@ impl SendFeature {
             },
         )
         .await?;
+
+        Ok(())
+    }
+
+    async fn run_receive(
+        &self,
+        blob_transfer: Arc<dyn BlobTransfer>,
+        state: &mut ReceiveTransferState,
+    ) -> Result<(), String> {
+        self.limits.validate_entries(
+            &state
+                .entries
+                .iter()
+                .map(|entry| (entry.name.clone(), entry.size))
+                .collect::<Vec<_>>(),
+        )?;
+
+        state.stage = ReceiveStage::Downloading;
+        save_receive_state(state).await?;
+
+        let root = BlobHash::from(state.collection_hash.as_str());
+        blob_transfer
+            .download_collection(
+                state.sender,
+                &root,
+                state.bytes_total,
+                &mut |progress| {
+                    state.bytes_done = progress.bytes_done;
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+
+        state.stage = ReceiveStage::Exporting;
+        save_receive_state(state).await?;
+
+        let receive_dir = state
+            .receive_dir
+            .clone()
+            .or_else(|| receive_dir(&state.sender_name, state.transfer_id))
+            .ok_or_else(|| "downloads directory unavailable".to_owned())?;
+        state.receive_dir = Some(receive_dir.clone());
+
+        let paths = blob_transfer
+            .export_collection(&root, &receive_dir, &mut |progress| {
+                state.bytes_done = progress.bytes_done;
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+
+        state.stage = ReceiveStage::Complete;
+        state.bytes_done = state.bytes_total;
+        save_receive_state(state).await?;
+        remove_receive_state(state.transfer_id).await?;
+
+        notify_files_received(&state.sender_name, paths.len(), &receive_dir);
+
+        info!(
+            sender = %state.sender,
+            transfer_id = %state.transfer_id,
+            count = paths.len(),
+            "received file send"
+        );
 
         Ok(())
     }
@@ -116,6 +188,17 @@ impl Feature for SendFeature {
     }
 
     async fn start(&mut self) -> Result<(), FeatureError> {
+        let feature = SendFeature {
+            blob_transfer: self.blob_transfer.clone(),
+            limits: self.limits,
+            transport: self.transport.clone(),
+            coordinator: self.coordinator.clone(),
+        };
+        let blob_transfer = self.blob_transfer.clone();
+        let transport = self.transport.clone();
+        tokio::spawn(async move {
+            crate::resume::resume_incomplete_receives(blob_transfer, transport, &feature).await;
+        });
         Ok(())
     }
 

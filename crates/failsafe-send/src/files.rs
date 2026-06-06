@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use failsafe_clipboard::limits::ClipboardLimits;
+use walkdir::WalkDir;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilePreview {
@@ -8,61 +9,77 @@ pub struct FilePreview {
     pub size: u64,
 }
 
-pub fn collect_file_preview(paths: &[PathBuf]) -> Result<Vec<FilePreview>, String> {
-    let mut previews = Vec::new();
+pub fn collect_import_sources(paths: &[PathBuf]) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut sources = Vec::new();
     for path in paths {
-        collect_path_preview(path, &mut previews)?;
+        collect_path_sources(path, &mut sources)?;
     }
-    if previews.is_empty() {
+    if sources.is_empty() {
         return Err("no files to send".to_owned());
     }
-    Ok(previews)
+    sources.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(sources)
 }
 
-fn collect_path_preview(path: &Path, previews: &mut Vec<FilePreview>) -> Result<(), String> {
-    if !path.exists() {
+fn collect_path_sources(path: &Path, sources: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve {}: {error}", path.display()))?;
+    if !canonical.exists() {
         return Err(format!("path does not exist: {}", path.display()));
     }
 
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| format!("failed to stat {}: {error}", path.display()))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("failed to stat {}: {error}", canonical.display()))?;
 
     if metadata.is_file() {
-        previews.push(FilePreview {
-            name: path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("file")
-                .to_owned(),
-            size: metadata.len(),
-        });
+        let name = canonical
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("file")
+            .to_owned();
+        sources.push((name, canonical));
         return Ok(());
     }
 
     if metadata.is_dir() {
-        let entries = std::fs::read_dir(path)
-            .map_err(|error| format!("failed to read dir {}: {error}", path.display()))?;
-        for entry in entries {
+        let root = canonical
+            .parent()
+            .ok_or_else(|| format!("directory has no parent: {}", canonical.display()))?;
+        for entry in WalkDir::new(&canonical).into_iter() {
             let entry = entry
-                .map_err(|error| format!("failed to read dir entry in {}: {error}", path.display()))?;
-            let entry_path = entry.path();
-            if entry_path.is_file() {
-                let file_meta = entry
-                    .metadata()
-                    .map_err(|error| format!("failed to stat {}: {error}", entry_path.display()))?;
-                previews.push(FilePreview {
-                    name: entry_path
-                        .file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or("file")
-                        .to_owned(),
-                    size: file_meta.len(),
-                });
+                .map_err(|error| format!("failed to walk {}: {error}", canonical.display()))?;
+            if !entry.file_type().is_file() {
+                continue;
             }
+            let file_path = entry.into_path();
+            let relative = file_path
+                .strip_prefix(root)
+                .map_err(|error| format!("failed to relativize path: {error}"))?;
+            let name = relative
+                .to_str()
+                .ok_or_else(|| format!("non-utf8 path: {}", relative.display()))?
+                .trim_start_matches('/')
+                .to_owned();
+            sources.push((name, file_path));
         }
     }
 
     Ok(())
+}
+
+pub fn collect_file_preview(paths: &[PathBuf]) -> Result<Vec<FilePreview>, String> {
+    collect_import_sources(paths).map(|sources| {
+        sources
+            .into_iter()
+            .map(|(name, path)| FilePreview {
+                size: std::fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or_default(),
+                name,
+            })
+            .collect()
+    })
 }
 
 pub async fn read_files_from_paths(

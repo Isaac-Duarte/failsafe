@@ -43,6 +43,8 @@ pub enum ControlRequest {
         target: crate::device::DeviceId,
         paths: Vec<PathBuf>,
         transfer_id: Uuid,
+        #[serde(default)]
+        resume: bool,
     },
 }
 

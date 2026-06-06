@@ -12,7 +12,8 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    encode_envelope, prepare_send_payload, SendCoordinator, SendEnvelope,
+    encode_envelope, mark_send_complete, mark_send_failed, prepare_send_payload, SendCoordinator,
+    SendEnvelope,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -131,8 +132,9 @@ impl ControlServer {
                 target,
                 paths,
                 transfer_id,
+                resume,
             } => {
-                self.handle_send_files(stream, target, paths, transfer_id)
+                self.handle_send_files(stream, target, paths, transfer_id, resume)
                     .await;
             }
         }
@@ -275,6 +277,7 @@ impl ControlServer {
         target: DeviceId,
         paths: Vec<PathBuf>,
         transfer_id: Uuid,
+        resume: bool,
     ) {
         if !self
             .local_features
@@ -353,31 +356,29 @@ impl ControlServer {
         });
 
         let progress_tx_for_callback = progress_tx.clone();
-        let emit_progress = move |phase: SendPhase,
-                                  bytes_done: u64,
-                                  bytes_total: u64,
-                                  current_file: Option<String>| {
-            let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
-                phase,
-                bytes_done,
-                bytes_total,
-                current_file,
+        let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
+            Box::new(move |phase, bytes_done, bytes_total, current_file| {
+                let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
+                    phase,
+                    bytes_done,
+                    bytes_total,
+                    current_file,
+                });
             });
-        };
 
         let ack_rx = self.coordinator.register(transfer_id).await;
 
         let result = async {
             let payload = prepare_send_payload(
                 &paths,
+                target,
                 self.blob_transfer.clone(),
                 self.send_limits,
                 self.device_name.clone(),
                 transfer_id,
+                resume,
                 &cancel,
-                |phase, bytes_done, bytes_total, current_file| {
-                    emit_progress(phase, bytes_done, bytes_total, current_file);
-                },
+                &mut emit_progress,
             )
             .await?;
 
@@ -421,6 +422,7 @@ impl ControlServer {
 
         match result {
             Ok(()) => {
+                let _ = mark_send_complete(transfer_id).await;
                 let _ = write_event(
                     &mut write_half,
                     &ControlEvent::SendComplete { transfer_id },
@@ -428,6 +430,7 @@ impl ControlServer {
                 .await;
             }
             Err(message) => {
+                let _ = mark_send_failed(transfer_id, message.clone()).await;
                 let _ = write_event(
                     &mut write_half,
                     &ControlEvent::SendFailed { message },

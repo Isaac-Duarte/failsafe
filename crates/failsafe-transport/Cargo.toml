@@ -7,7 +7,7 @@ edition.workspace = true
 default = []
 test-util = []
 iroh = ["dep:iroh", "dep:bytes", "dep:rand", "dep:tracing"]
-iroh-blobs = ["iroh", "dep:iroh-blobs", "dep:bytes"]
+iroh-blobs = ["iroh", "dep:iroh-blobs", "dep:bytes", "dep:n0-future"]
 
 [dependencies]
 async-trait.workspace = true
@@ -17,6 +17,7 @@ failsafe-core.workspace = true
 hex = "0.4"
 iroh = { workspace = true, optional = true }
 iroh-blobs = { workspace = true, optional = true }
+n0-future = { version = "0.3", optional = true }
 rand = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
