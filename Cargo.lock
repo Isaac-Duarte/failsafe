@@ -2338,6 +2338,7 @@ dependencies = [
  "fast_image_resize",
  "image",
  "libwayshot-xcap",
+ "rustix 1.1.4",
  "scrap",
  "serde",
  "serde_json",
@@ -2345,6 +2346,7 @@ dependencies = [
  "tokio",
  "tracing",
  "xcap",
+ "zbus",
 ]
 
 [[package]]

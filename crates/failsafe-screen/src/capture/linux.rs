@@ -1,3 +1,5 @@
+mod kde_kwin;
+
 use libwayshot_xcap::WayshotConnection;
 use libwayshot_xcap::region::LogicalRegion;
 use scrap::{Capturer, Display};
@@ -6,6 +8,7 @@ use tracing::{debug, warn};
 use xcap::Monitor;
 
 use super::{CaptureError, CapturedFrame};
+use kde_kwin::KdeKwinCapturer;
 
 pub struct LinuxCapturer {
     backend: LinuxBackend,
@@ -23,6 +26,9 @@ enum LinuxBackend {
         width: u32,
         height: u32,
     },
+    KdeKwin {
+        capturer: KdeKwinCapturer,
+    },
     Xcap,
 }
 
@@ -35,6 +41,12 @@ impl LinuxCapturer {
                     return Ok(capturer);
                 }
                 warn!("wlroots screen capture unavailable, falling back to xcap");
+            } else if is_kde_desktop() {
+                if let Ok(capturer) = Self::try_kde_kwin() {
+                    debug!("using kde kwin screenshot2 screen capture");
+                    return Ok(capturer);
+                }
+                warn!("kde kwin screen capture unavailable, falling back to xcap");
             } else {
                 debug!("non-wlroots wayland session, using xcap screen capture");
             }
@@ -72,6 +84,14 @@ impl LinuxCapturer {
                     capture_xcap()
                 }
             },
+            LinuxBackend::KdeKwin { capturer } => match capturer.capture() {
+                Ok(frame) => Ok(frame),
+                Err(error) => {
+                    warn!("kde kwin capture failed, falling back to xcap: {error}");
+                    self.backend = LinuxBackend::Xcap;
+                    capture_xcap()
+                }
+            },
             LinuxBackend::Xcap => capture_xcap(),
         }
     }
@@ -90,6 +110,13 @@ impl LinuxCapturer {
                 width,
                 height,
             },
+        })
+    }
+
+    fn try_kde_kwin() -> Result<Self, CaptureError> {
+        let capturer = KdeKwinCapturer::try_new()?;
+        Ok(Self {
+            backend: LinuxBackend::KdeKwin { capturer },
         })
     }
 
@@ -129,6 +156,13 @@ fn is_wayland_session() -> bool {
         || std::env::var("XDG_SESSION_TYPE")
             .map(|value| value.eq_ignore_ascii_case("wayland"))
             .unwrap_or(false)
+}
+
+fn is_kde_desktop() -> bool {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    desktop.contains("kde") || desktop.contains("plasma")
 }
 
 fn is_wlroots_desktop() -> bool {
