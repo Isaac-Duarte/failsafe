@@ -345,7 +345,7 @@ impl ControlServer {
             cancel_child.cancel();
         });
 
-        let (progress_tx, mut progress_rx) = mpsc::channel::<ControlEvent>(32);
+        let (progress_tx, mut progress_rx) = mpsc::channel::<ControlEvent>(256);
         let progress_writer = tokio::spawn(async move {
             while let Some(event) = progress_rx.recv().await {
                 if write_event(&mut write_half, &event).await.is_err() {
@@ -358,7 +358,7 @@ impl ControlServer {
         let progress_tx_for_callback = progress_tx.clone();
         let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
             Box::new(move |phase, bytes_done, bytes_total, current_file| {
-                let _ = progress_tx_for_callback.blocking_send(ControlEvent::SendProgress {
+                let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
                     phase,
                     bytes_done,
                     bytes_total,
@@ -386,7 +386,14 @@ impl ControlServer {
                 return Err("transfer cancelled".to_owned());
             }
 
-            emit_progress(SendPhase::Sending, 0, 0, None);
+            let _ = progress_tx
+                .send(ControlEvent::SendProgress {
+                    phase: SendPhase::Sending,
+                    bytes_done: 0,
+                    bytes_total: 0,
+                    current_file: None,
+                })
+                .await;
 
             let local_id = self.transport.local_device_id();
             let envelope = SendEnvelope::Transfer(payload);
@@ -404,7 +411,14 @@ impl ControlServer {
                     .map_err(|error| error.to_string())
             });
 
-            emit_progress(SendPhase::WaitingForAck, 0, 0, None);
+            let _ = progress_tx
+                .send(ControlEvent::SendProgress {
+                    phase: SendPhase::WaitingForAck,
+                    bytes_done: 0,
+                    bytes_total: 0,
+                    current_file: None,
+                })
+                .await;
             drop(progress_tx);
 
             match tokio::time::timeout(SEND_ACK_TIMEOUT, ack_rx).await {
