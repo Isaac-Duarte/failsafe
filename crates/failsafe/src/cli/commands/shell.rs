@@ -3,11 +3,11 @@ use std::path::PathBuf;
 
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use failsafe::DaemonError;
-use tokio::net::UnixStream;
+use failsafe_core::control::connect_control;
 
 use failsafe::control::{
-    ControlRequest, ControlResponse, control_socket_path, recv_response, relay_terminal_io,
-    send_request,
+    ControlRequest, ControlResponse, control_socket_path, map_control_connect_error,
+    recv_response, relay_terminal_io, send_request,
 };
 
 use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};
@@ -37,19 +37,9 @@ pub async fn shell(
     }
 
     let (rows, cols) = terminal_size();
-    let mut stream = UnixStream::connect(control_socket_path()?)
+    let mut stream = connect_control(&control_socket_path()?)
         .await
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound
-                || error.kind() == io::ErrorKind::ConnectionRefused
-            {
-                DaemonError::Config(
-                    "daemon is not running; start it with `failsafe run`".to_owned(),
-                )
-            } else {
-                DaemonError::Io(error)
-            }
-        })?;
+        .map_err(map_control_connect_error)?;
 
     send_request(
         &mut stream,

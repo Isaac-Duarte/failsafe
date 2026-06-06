@@ -13,6 +13,7 @@ pub enum FeatureId {
     Clipboard,
     Shell,
     PortForward,
+    FileSend,
 }
 
 impl FeatureId {
@@ -21,6 +22,7 @@ impl FeatureId {
             FeatureId::Clipboard,
             FeatureId::Shell,
             FeatureId::PortForward,
+            FeatureId::FileSend,
         ]
     }
 }
@@ -31,6 +33,7 @@ impl fmt::Display for FeatureId {
             Self::Clipboard => write!(f, "clipboard"),
             Self::Shell => write!(f, "shell"),
             Self::PortForward => write!(f, "port_forward"),
+            Self::FileSend => write!(f, "file_send"),
         }
     }
 }
@@ -47,6 +50,7 @@ impl FromStr for FeatureId {
             "clipboard" => Ok(Self::Clipboard),
             "shell" => Ok(Self::Shell),
             "port_forward" => Ok(Self::PortForward),
+            "file_send" => Ok(Self::FileSend),
             other => Err(UnknownFeatureId(other.to_owned())),
         }
     }

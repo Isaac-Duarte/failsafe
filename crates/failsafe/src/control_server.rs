@@ -1,29 +1,46 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
+use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::PortProtocol;
+use failsafe_core::control::{ControlEvent, SendPhase};
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
+use failsafe_send::{
+    encode_envelope, prepare_send_payload, SendCoordinator, SendEnvelope,
+};
+use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::RwLock;
+use failsafe_core::control::{bind_control, ControlListener, ControlStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{mpsc, RwLock};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use crate::control::{
-    ControlRequest, ControlResponse, control_socket_path, recv_request, remove_stale_socket,
-    send_response,
+    control_socket_path, recv_request, send_response, write_event, ControlRequest,
+    ControlResponse,
 };
 use crate::error::DaemonError;
 use crate::shell_service::run_outgoing_shell;
 
+const SEND_ACK_TIMEOUT: Duration = Duration::from_secs(300);
+
 pub struct ControlServer {
     path: PathBuf,
     iroh: Arc<IrohTransport>,
+    transport: Arc<dyn Transport>,
+    blob_transfer: Arc<dyn BlobTransfer>,
+    device_name: String,
+    send_limits: ClipboardLimits,
+    coordinator: Arc<SendCoordinator>,
     local_features: Arc<RwLock<HashSet<FeatureId>>>,
     peers: Arc<PeerDirectory>,
 }
@@ -31,12 +48,22 @@ pub struct ControlServer {
 impl ControlServer {
     pub fn new(
         iroh: Arc<IrohTransport>,
+        transport: Arc<dyn Transport>,
+        blob_transfer: Arc<dyn BlobTransfer>,
+        device_name: String,
+        send_limits: ClipboardLimits,
+        coordinator: Arc<SendCoordinator>,
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
     ) -> Result<Self, DaemonError> {
         Ok(Self::with_path(
             control_socket_path()?,
             iroh,
+            transport,
+            blob_transfer,
+            device_name,
+            send_limits,
+            coordinator,
             local_features,
             peers,
         ))
@@ -45,26 +72,32 @@ impl ControlServer {
     pub(crate) fn with_path(
         path: PathBuf,
         iroh: Arc<IrohTransport>,
+        transport: Arc<dyn Transport>,
+        blob_transfer: Arc<dyn BlobTransfer>,
+        device_name: String,
+        send_limits: ClipboardLimits,
+        coordinator: Arc<SendCoordinator>,
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
     ) -> Self {
         Self {
             path,
             iroh,
+            transport,
+            blob_transfer,
+            device_name,
+            send_limits,
+            coordinator,
             local_features,
             peers,
         }
     }
 
-    pub async fn bind(&self) -> Result<UnixListener, DaemonError> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(DaemonError::Io)?;
-        }
-        remove_stale_socket(&self.path).await?;
-        UnixListener::bind(&self.path).map_err(DaemonError::Io)
+    pub async fn bind(&self) -> Result<ControlListener, DaemonError> {
+        bind_control(&self.path).await.map_err(DaemonError::Control)
     }
 
-    pub async fn handle_connection(&self, mut stream: UnixStream) {
+    pub async fn handle_connection(&self, mut stream: ControlStream) {
         let request = match recv_request(&mut stream).await {
             Ok(request) => request,
             Err(error) => {
@@ -94,12 +127,20 @@ impl ControlServer {
                 self.handle_open_port_forward(&mut stream, target, local_port, remote_port, protocol)
                     .await;
             }
+            ControlRequest::SendFiles {
+                target,
+                paths,
+                transfer_id,
+            } => {
+                self.handle_send_files(stream, target, paths, transfer_id)
+                    .await;
+            }
         }
     }
 
     async fn handle_open_shell(
         &self,
-        stream: &mut UnixStream,
+        stream: &mut ControlStream,
         target: DeviceId,
         rows: u16,
         cols: u16,
@@ -178,7 +219,7 @@ impl ControlServer {
 
     async fn handle_open_port_forward(
         &self,
-        stream: &mut UnixStream,
+        stream: &mut ControlStream,
         target: DeviceId,
         local_port: u16,
         remote_port: u16,
@@ -227,9 +268,179 @@ impl ControlServer {
         )
         .await;
     }
+
+    async fn handle_send_files(
+        &self,
+        mut stream: ControlStream,
+        target: DeviceId,
+        paths: Vec<PathBuf>,
+        transfer_id: Uuid,
+    ) {
+        if !self
+            .local_features
+            .read()
+            .await
+            .contains(&FeatureId::FileSend)
+        {
+            let _ = send_response(
+                &mut stream,
+                &ControlResponse::Error {
+                    message: "file_send is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if !self
+            .peers
+            .is_feature_enabled(target, FeatureId::FileSend)
+            .await
+        {
+            let _ = send_response(
+                &mut stream,
+                &ControlResponse::Error {
+                    message: format!(
+                        "file_send is not enabled on device {target}; enable it on both devices"
+                    ),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if !self.transport.connected_peers().await.contains(&target) {
+            let _ = send_response(
+                &mut stream,
+                &ControlResponse::Error {
+                    message: format!("device {target} is offline or unreachable"),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if send_response(&mut stream, &ControlResponse::Ready)
+            .await
+            .is_err()
+        {
+            return;
+        }
+
+        let (mut read_half, mut write_half) = tokio::io::split(stream);
+
+        let cancel = CancellationToken::new();
+        let cancel_child = cancel.child_token();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 64];
+            loop {
+                match read_half.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            cancel_child.cancel();
+        });
+
+        let (progress_tx, mut progress_rx) = mpsc::channel::<ControlEvent>(32);
+        let progress_writer = tokio::spawn(async move {
+            while let Some(event) = progress_rx.recv().await {
+                if write_event(&mut write_half, &event).await.is_err() {
+                    break;
+                }
+            }
+            write_half
+        });
+
+        let progress_tx_for_callback = progress_tx.clone();
+        let emit_progress = move |phase: SendPhase,
+                                  bytes_done: u64,
+                                  bytes_total: u64,
+                                  current_file: Option<String>| {
+            let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
+                phase,
+                bytes_done,
+                bytes_total,
+                current_file,
+            });
+        };
+
+        let ack_rx = self.coordinator.register(transfer_id).await;
+
+        let result = async {
+            let payload = prepare_send_payload(
+                &paths,
+                self.blob_transfer.clone(),
+                self.send_limits,
+                self.device_name.clone(),
+                transfer_id,
+                &cancel,
+                |phase, bytes_done, bytes_total, current_file| {
+                    emit_progress(phase, bytes_done, bytes_total, current_file);
+                },
+            )
+            .await?;
+
+            if cancel.is_cancelled() {
+                return Err("transfer cancelled".to_owned());
+            }
+
+            emit_progress(SendPhase::Sending, 0, 0, None);
+
+            let local_id = self.transport.local_device_id();
+            let envelope = SendEnvelope::Transfer(payload);
+            self.transport
+                .send(FeatureMessage::new(
+                    local_id,
+                    target,
+                    FeatureId::FileSend,
+                    encode_envelope(&envelope),
+                ))
+                .await
+                .map_err(|error| error.to_string())?;
+
+            emit_progress(SendPhase::WaitingForAck, 0, 0, None);
+            drop(progress_tx);
+
+            match tokio::time::timeout(SEND_ACK_TIMEOUT, ack_rx).await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(message))) => Err(message),
+                Ok(Err(_)) => Err("transfer acknowledgement channel closed".to_owned()),
+                Err(_) => Err("timed out waiting for receiver acknowledgement".to_owned()),
+            }
+        }
+        .await;
+
+        if cancel.is_cancelled() {
+            self.coordinator.cancel(transfer_id).await;
+        }
+
+        let mut write_half = progress_writer.await.unwrap_or_else(|_| {
+            panic!("progress writer task panicked")
+        });
+
+        match result {
+            Ok(()) => {
+                let _ = write_event(
+                    &mut write_half,
+                    &ControlEvent::SendComplete { transfer_id },
+                )
+                .await;
+            }
+            Err(message) => {
+                let _ = write_event(
+                    &mut write_half,
+                    &ControlEvent::SendFailed { message },
+                )
+                .await;
+            }
+        }
+
+        let _ = write_half.shutdown().await;
+    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
@@ -238,6 +449,7 @@ mod tests {
     use failsafe_core::feature::FeatureId;
     use failsafe_core::peer::PeerDirectory;
     use failsafe_core::peer_address::PeerAddressBook;
+    use failsafe_send::SendCoordinator;
     use failsafe_transport::iroh::{IrohConfig, IrohTransport};
     use failsafe_transport::transport::Transport;
     use tempfile::TempDir;
@@ -329,9 +541,15 @@ mod tests {
             .await;
 
         let local_features = Arc::new(RwLock::new(HashSet::from([FeatureId::Shell])));
+        let coordinator = SendCoordinator::new();
         let server = Arc::new(ControlServer::with_path(
             temp.path().join("control.sock"),
             transport_a.clone(),
+            transport_a.clone(),
+            transport_a.blob_transfer().clone(),
+            "device-a".to_owned(),
+            ClipboardLimits::default(),
+            coordinator,
             local_features,
             peers,
         ));
@@ -361,12 +579,10 @@ mod tests {
         let client_one = client_one.expect("first shell client ready");
         let client_two = client_two.expect("second shell client ready");
 
-        // Both sessions stay open concurrently; drop to end the relays.
         drop(client_one);
         drop(client_two);
 
         accept_task.abort();
         shell_host_task.abort();
     }
-
 }

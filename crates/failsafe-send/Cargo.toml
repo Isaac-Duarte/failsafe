@@ -1,0 +1,25 @@
+[package]
+name = "failsafe-send"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+failsafe-clipboard.workspace = true
+failsafe-core.workspace = true
+failsafe-transport.workspace = true
+notify-rust.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "fs", "time", "rt"] }
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+failsafe-transport = { workspace = true, features = ["test-util"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use failsafe_clipboard::feature::ClipboardFeature;
 use failsafe_clipboard::limits::ClipboardLimits;
+use failsafe_send::{SendCoordinator, SendFeature};
+use failsafe_transport::blobs::MockBlobTransfer;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -40,11 +42,14 @@ pub struct Daemon {
     peer_updater: Arc<dyn PeerAddressUpdater>,
     peers: Arc<PeerDirectory>,
     registry: FeatureRegistry,
+    send_coordinator: Arc<SendCoordinator>,
     server_client: Option<ServerClient>,
     local_features: HashSet<FeatureId>,
     device_name: String,
     iroh_public_key: Option<String>,
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
+    blob_transfer: Arc<dyn BlobTransfer>,
+    send_limits: ClipboardLimits,
     shell_sessions: Option<mpsc::Receiver<ShellSession>>,
     port_sessions: Option<mpsc::Receiver<PortSession>>,
     config_path: Option<PathBuf>,
@@ -152,8 +157,24 @@ impl DaemonBuilder {
             self.clipboard_limits,
         )))?;
 
+        let blob_transfer = self
+            .blob_transfer
+            .clone()
+            .unwrap_or_else(|| Arc::new(MockBlobTransfer::new()));
+        let send_coordinator = SendCoordinator::new();
+        registry.register(Box::new(SendFeature::new(
+            blob_transfer.clone(),
+            self.clipboard_limits,
+            transport.clone(),
+            send_coordinator.clone(),
+        )))?;
+
         if self.enabled_features.contains(&FeatureId::Clipboard) {
             registry.enable(FeatureId::Clipboard)?;
+        }
+
+        if self.enabled_features.contains(&FeatureId::FileSend) {
+            registry.enable(FeatureId::FileSend)?;
         }
 
         Ok(Daemon {
@@ -161,11 +182,14 @@ impl DaemonBuilder {
             peer_updater,
             peers: self.peers,
             registry,
+            send_coordinator,
             server_client: self.server_client,
             local_features: self.enabled_features,
             device_name: self.device_name,
             iroh_public_key: self.iroh_public_key,
             iroh: self.iroh,
+            blob_transfer,
+            send_limits: self.clipboard_limits,
             shell_sessions: None,
             port_sessions: None,
             config_path: None,
@@ -337,7 +361,18 @@ impl Daemon {
         let control_server: Option<Arc<ControlServer>> = self
             .iroh
             .clone()
-            .map(|iroh| ControlServer::new(iroh, shared_features.clone(), self.peers.clone()))
+            .map(|iroh| {
+                ControlServer::new(
+                    iroh,
+                    self.transport.clone(),
+                    self.blob_transfer.clone(),
+                    self.device_name.clone(),
+                    self.send_limits,
+                    self.send_coordinator.clone(),
+                    shared_features.clone(),
+                    self.peers.clone(),
+                )
+            })
             .transpose()?
             .map(Arc::new);
         let control_listener = match control_server.as_ref() {
