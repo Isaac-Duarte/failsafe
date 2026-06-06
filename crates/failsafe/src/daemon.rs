@@ -315,13 +315,14 @@ impl Daemon {
         self.ensure_shell_service().await;
 
         let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
-        let control_server = self
+        let control_server: Option<Arc<ControlServer>> = self
             .iroh
             .clone()
             .map(|iroh| {
                 ControlServer::new(iroh, shared_features.clone(), self.peers.clone())
             })
-            .transpose()?;
+            .transpose()?
+            .map(Arc::new);
         let control_listener = match control_server.as_ref() {
             Some(server) => Some(server.bind().await?),
             None => None,
@@ -353,7 +354,10 @@ impl Daemon {
                     }
                 } => {
                     if let (Some(server), Some((stream, _))) = (control_server.as_ref(), accepted) {
-                        server.handle_connection(stream).await;
+                        let server = Arc::clone(server);
+                        tokio::spawn(async move {
+                            server.handle_connection(stream).await;
+                        });
                     }
                 }
                 _ = sync_interval.tick() => {

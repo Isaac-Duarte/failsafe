@@ -331,3 +331,110 @@ async fn shell_stream_opens_between_peers() {
         .expect("read shell response on client");
     assert_eq!(&client_buf, b"pong");
 }
+
+#[tokio::test]
+async fn concurrent_shell_streams_to_same_peer() {
+    let temp = TempDir::new().expect("tempdir");
+    let device_a = DeviceId::new();
+    let device_b = DeviceId::new();
+
+    let transport_a = IrohTransport::start(IrohConfig {
+        device_id: device_a,
+        secret_key_path: temp.path().join("concurrent-shell-a.key"),
+        blob_store_path: temp.path().join("concurrent-shell-blobs-a"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport a");
+
+    let mut addresses_b = HashMap::new();
+    addresses_b.insert(device_a, transport_a.public_key().to_string());
+
+    let transport_b = IrohTransport::start(IrohConfig {
+        device_id: device_b,
+        secret_key_path: temp.path().join("concurrent-shell-b.key"),
+        blob_store_path: temp.path().join("concurrent-shell-blobs-b"),
+        address_book: PeerAddressBook::from_map(addresses_b),
+    })
+    .await
+    .expect("start transport b");
+
+    let (acceptor_tx, mut acceptor_rx) = mpsc::channel(2);
+    transport_b.set_shell_acceptor(acceptor_tx).await;
+
+    let mut addresses_a = HashMap::new();
+    addresses_a.insert(device_b, transport_b.public_key().to_string());
+    transport_a
+        .update_peers(PeerAddressBook::from_map(addresses_a))
+        .expect("update peer addresses on a");
+
+    wait_for_connection(&transport_a, device_b)
+        .await
+        .expect("a connects to b");
+    wait_for_connection(&transport_b, device_a)
+        .await
+        .expect("b connects to a");
+
+    let (client_one, client_two) = tokio::join!(
+        transport_a.open_shell_stream(device_b, 24, 80),
+        transport_a.open_shell_stream(device_b, 24, 80),
+    );
+    let mut client_one = client_one.expect("open first shell stream");
+    let mut client_two = client_two.expect("open second shell stream");
+
+    let mut host_one = tokio::time::timeout(Duration::from_secs(10), acceptor_rx.recv())
+        .await
+        .expect("first shell accept timeout")
+        .expect("first shell accept channel open");
+    let mut host_two = tokio::time::timeout(Duration::from_secs(10), acceptor_rx.recv())
+        .await
+        .expect("second shell accept timeout")
+        .expect("second shell accept channel open");
+
+    assert_eq!(host_one.from, device_a);
+    assert_eq!(host_two.from, device_a);
+
+    client_one
+        .send
+        .write_all(b"one")
+        .await
+        .expect("write first shell payload");
+    client_two
+        .send
+        .write_all(b"two")
+        .await
+        .expect("write second shell payload");
+
+    let mut host_one_buf = [0u8; 3];
+    let mut host_two_buf = [0u8; 3];
+    read_exact(&mut host_one.recv, &mut host_one_buf)
+        .await
+        .expect("read first shell payload on host");
+    read_exact(&mut host_two.recv, &mut host_two_buf)
+        .await
+        .expect("read second shell payload on host");
+    assert_eq!(&host_one_buf, b"one");
+    assert_eq!(&host_two_buf, b"two");
+
+    host_one
+        .send
+        .write_all(b"1ok")
+        .await
+        .expect("write first shell response");
+    host_two
+        .send
+        .write_all(b"2ok")
+        .await
+        .expect("write second shell response");
+
+    let mut client_one_buf = [0u8; 3];
+    let mut client_two_buf = [0u8; 3];
+    read_exact(&mut client_one.recv, &mut client_one_buf)
+        .await
+        .expect("read first shell response on client");
+    read_exact(&mut client_two.recv, &mut client_two_buf)
+        .await
+        .expect("read second shell response on client");
+    assert_eq!(&client_one_buf, b"1ok");
+    assert_eq!(&client_two_buf, b"2ok");
+}
