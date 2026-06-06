@@ -1,12 +1,15 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_core::peer::PeerDirectory;
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::control::{
@@ -19,15 +22,21 @@ use crate::shell_service::run_outgoing_shell;
 pub struct ControlServer {
     path: PathBuf,
     iroh: Arc<IrohTransport>,
-    local_features: std::collections::HashSet<FeatureId>,
+    local_features: Arc<RwLock<HashSet<FeatureId>>>,
+    peers: Arc<PeerDirectory>,
 }
 
 impl ControlServer {
-    pub fn new(iroh: Arc<IrohTransport>, local_features: std::collections::HashSet<FeatureId>) -> Result<Self, DaemonError> {
+    pub fn new(
+        iroh: Arc<IrohTransport>,
+        local_features: Arc<RwLock<HashSet<FeatureId>>>,
+        peers: Arc<PeerDirectory>,
+    ) -> Result<Self, DaemonError> {
         Ok(Self {
             path: control_socket_path()?,
             iroh,
             local_features,
+            peers,
         })
     }
 
@@ -74,11 +83,33 @@ impl ControlServer {
         rows: u16,
         cols: u16,
     ) {
-        if !self.local_features.contains(&FeatureId::Shell) {
+        if !self
+            .local_features
+            .read()
+            .await
+            .contains(&FeatureId::Shell)
+        {
             let _ = send_response(
                 stream,
                 &ControlResponse::Error {
-                    message: "shell is not enabled on this device".to_owned(),
+                    message: "shell is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if !self
+            .peers
+            .is_feature_enabled(target, FeatureId::Shell)
+            .await
+        {
+            let _ = send_response(
+                stream,
+                &ControlResponse::Error {
+                    message: format!(
+                        "shell is not enabled on device {target}; enable it on both devices"
+                    ),
                 },
             )
             .await;

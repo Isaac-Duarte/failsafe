@@ -40,6 +40,15 @@ impl PeerDirectory {
         }
     }
 
+    pub async fn is_feature_enabled(&self, peer: DeviceId, feature: FeatureId) -> bool {
+        self.peers.read().await.contains(&peer)
+            && !self
+                .disabled
+                .read()
+                .await
+                .contains(&(peer, feature))
+    }
+
     pub async fn recipients_for(&self, feature: FeatureId) -> Vec<DeviceId> {
         let peers = self.peers.read().await;
         let disabled = self.disabled.read().await;

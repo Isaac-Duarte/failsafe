@@ -50,6 +50,10 @@ impl FeatureRegistry {
         feature.start().await
     }
 
+    pub fn is_registered(&self, id: FeatureId) -> bool {
+        self.features.contains_key(&id)
+    }
+
     pub fn is_enabled(&self, id: FeatureId) -> bool {
         self.enabled.contains(&id)
     }

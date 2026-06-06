@@ -62,6 +62,10 @@ async fn sync_features_to_registry(
     start_new_features: bool,
 ) -> Result<(), DaemonError> {
     for feature in FeatureId::all() {
+        if !registry.is_registered(*feature) {
+            continue;
+        }
+
         let should_enable = target.contains(feature);
         let is_enabled = registry.is_enabled(*feature);
 
@@ -271,5 +275,41 @@ mod tests {
 
         assert!(registry.is_enabled(FeatureId::Clipboard));
         assert!(local_features.contains(&FeatureId::Clipboard));
+    }
+
+    #[tokio::test]
+    async fn apply_self_enables_shell_in_policy_without_registry_entry() {
+        let self_id = DeviceId::new();
+        let mut config = Config::new(self_id);
+        let config_path = std::env::temp_dir().join("failsafe-test-config-shell.toml");
+        let mut device_name = config.device_name.clone();
+        let mut local_features = HashSet::new();
+        let mut registry = test_registry();
+
+        let devices = vec![DeviceInfo {
+            device_id: self_id,
+            name: "server-name".to_owned(),
+            iroh_public_key: "abc".to_owned(),
+            enabled_features: vec![FeatureId::Clipboard, FeatureId::Shell],
+            last_seen: None,
+            online: true,
+        }];
+
+        apply_self_from_server(
+            self_id,
+            &devices,
+            &mut device_name,
+            &mut local_features,
+            &mut config,
+            &config_path,
+            &mut registry,
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert!(local_features.contains(&FeatureId::Shell));
+        assert!(!registry.is_registered(FeatureId::Shell));
+        assert!(registry.is_enabled(FeatureId::Clipboard));
     }
 }

@@ -14,7 +14,9 @@ use failsafe_core::registry::FeatureRegistry;
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
+use failsafe_transport::iroh::ShellSession;
 use failsafe_transport::transport::Transport;
+use tokio::sync::{RwLock, mpsc};
 use tracing::info;
 
 use crate::config::Config;
@@ -42,6 +44,7 @@ pub struct Daemon {
     device_name: String,
     iroh_public_key: Option<String>,
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
+    shell_sessions: Option<mpsc::Receiver<ShellSession>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -161,6 +164,7 @@ impl DaemonBuilder {
             device_name: self.device_name,
             iroh_public_key: self.iroh_public_key,
             iroh: self.iroh,
+            shell_sessions: None,
             config_path: None,
             config: None,
         })
@@ -279,6 +283,21 @@ impl Daemon {
         Ok(())
     }
 
+    async fn ensure_shell_service(&mut self) {
+        let shell_enabled = self.local_features.contains(&FeatureId::Shell);
+
+        if shell_enabled && self.shell_sessions.is_none() {
+            if let Some(iroh) = self.iroh.clone() {
+                self.shell_sessions = Some(start_shell_acceptor(iroh).await);
+            }
+        } else if !shell_enabled && self.shell_sessions.is_some() {
+            if let Some(iroh) = &self.iroh {
+                stop_shell_acceptor(iroh).await;
+            }
+            self.shell_sessions = None;
+        }
+    }
+
     pub async fn run(&mut self) -> Result<(), DaemonError> {
         if self.server_client.is_none() {
             return Err(DaemonError::Config(
@@ -293,18 +312,15 @@ impl Daemon {
         self.sync_from_server(false).await?;
 
         self.registry.start_enabled().await?;
+        self.ensure_shell_service().await;
 
-        let mut shell_sessions = None;
-        if self.local_features.contains(&FeatureId::Shell) {
-            if let Some(iroh) = self.iroh.clone() {
-                shell_sessions = Some(start_shell_acceptor(iroh).await);
-            }
-        }
-
+        let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
         let control_server = self
             .iroh
             .clone()
-            .map(|iroh| ControlServer::new(iroh, self.local_features.clone()))
+            .map(|iroh| {
+                ControlServer::new(iroh, shared_features.clone(), self.peers.clone())
+            })
             .transpose()?;
         let control_listener = match control_server.as_ref() {
             Some(server) => Some(server.bind().await?),
@@ -321,7 +337,7 @@ impl Daemon {
                     self.registry.dispatch(message).await?;
                 }
                 session = async {
-                    match shell_sessions.as_mut() {
+                    match self.shell_sessions.as_mut() {
                         Some(rx) => rx.recv().await,
                         None => std::future::pending().await,
                     }
@@ -349,6 +365,9 @@ impl Daemon {
                     }
                     if let Err(error) = self.sync_from_server(true).await {
                         tracing::warn!("server sync failed: {error}");
+                    } else {
+                        *shared_features.write().await = self.local_features.clone();
+                        self.ensure_shell_service().await;
                     }
                 }
                 result = tokio::signal::ctrl_c() => {
