@@ -8,7 +8,7 @@ pub struct FramePreprocessor {
     cached_dst_width: u32,
     cached_dst_height: u32,
     dst_image: Option<Image<'static>>,
-    rgb_scratch: Vec<u8>,
+    dst_rgba_scratch: Vec<u8>,
 }
 
 impl FramePreprocessor {
@@ -24,7 +24,7 @@ impl FramePreprocessor {
             cached_dst_width: 0,
             cached_dst_height: 0,
             dst_image: None,
-            rgb_scratch: Vec::new(),
+            dst_rgba_scratch: Vec::new(),
         }
     }
 
@@ -42,7 +42,7 @@ impl FramePreprocessor {
         rgba: Vec<u8>,
         width: u32,
         height: u32,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<u8>, String> {
         let expected = width as usize * height as usize * 4;
         if rgba.len() != expected {
             return Err(format!(
@@ -53,8 +53,7 @@ impl FramePreprocessor {
 
         let (dst_width, dst_height) = output_dimensions(width, height, self.max_width);
         if dst_width == width && dst_height == height {
-            strip_alpha_into(&mut self.rgb_scratch, &rgba);
-            return Ok(());
+            return Ok(strip_alpha(&rgba));
         }
 
         self.ensure_dst_image(dst_width, dst_height);
@@ -68,16 +67,12 @@ impl FramePreprocessor {
             .map_err(|error| error.to_string())?;
 
         let rgba = dst.buffer();
-        self.rgb_scratch.clear();
-        self.rgb_scratch.reserve(rgba.len() / 4 * 3);
+        self.dst_rgba_scratch.clear();
+        self.dst_rgba_scratch.reserve(rgba.len() / 4 * 3);
         for pixel in rgba.chunks_exact(4) {
-            self.rgb_scratch.extend_from_slice(&pixel[..3]);
+            self.dst_rgba_scratch.extend_from_slice(&pixel[..3]);
         }
-        Ok(())
-    }
-
-    pub fn rgb_pixels(&self) -> &[u8] {
-        &self.rgb_scratch
+        Ok(std::mem::take(&mut self.dst_rgba_scratch))
     }
 
     fn ensure_dst_image(&mut self, dst_width: u32, dst_height: u32) {
@@ -102,12 +97,12 @@ pub fn output_dimensions(width: u32, height: u32, max_width: u32) -> (u32, u32) 
     (dst_width, dst_height.max(1))
 }
 
-fn strip_alpha_into(rgb: &mut Vec<u8>, rgba: &[u8]) {
-    rgb.clear();
-    rgb.reserve(rgba.len() / 4 * 3);
+fn strip_alpha(rgba: &[u8]) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
     for pixel in rgba.chunks_exact(4) {
         rgb.extend_from_slice(&pixel[..3]);
     }
+    rgb
 }
 
 #[cfg(test)]
@@ -151,22 +146,10 @@ mod tests {
             }
         }
 
-        preprocessor
+        let rgb = preprocessor
             .rgba_to_rgb(rgba, width, height)
             .expect("preprocess");
-        assert_eq!(preprocessor.rgb_pixels().len(), 1280 * 720 * 3);
-        assert_eq!(preprocessor.rgb_pixels()[2], 128);
-    }
-
-    #[test]
-    fn reuses_rgb_buffer_across_frames() {
-        let mut preprocessor = FramePreprocessor::new(1280);
-        let rgba = vec![255u8; 4 * 4 * 4];
-        preprocessor.rgba_to_rgb(rgba, 4, 4).expect("first");
-        let first_ptr = preprocessor.rgb_pixels().as_ptr();
-        preprocessor
-            .rgba_to_rgb(vec![0u8; 4 * 4 * 4], 4, 4)
-            .expect("second");
-        assert_eq!(preprocessor.rgb_pixels().as_ptr(), first_ptr);
+        assert_eq!(rgb.len(), 1280 * 720 * 3);
+        assert_eq!(rgb[2], 128);
     }
 }

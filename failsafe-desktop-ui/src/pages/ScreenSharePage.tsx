@@ -32,7 +32,7 @@ export function ScreenSharePage() {
   const [searchParams] = useSearchParams()
   const deviceName = searchParams.get("name") ?? deviceId ?? "Device"
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
-  const { canvasRef, hasFrame, status, error, quality, fps, setQuality, stop } = useScreenShare(
+  const { frameUrl, status, error, quality, fps, setQuality, stop } = useScreenShare(
     deviceId,
     deviceName
   )
@@ -112,14 +112,17 @@ export function ScreenSharePage() {
               )}
               onDoubleClick={() => toggleFullscreen()}
             >
-              <canvas
-                ref={canvasRef}
-                className={cn(
-                  "object-contain",
-                  isFullscreen ? "h-full w-full" : "max-h-[70vh] w-full",
-                  !hasFrame && "hidden"
-                )}
-              />
+              {frameUrl ? (
+                <img
+                  src={frameUrl}
+                  alt={`Screen from ${deviceName}`}
+                  className={cn(
+                    "object-contain",
+                    isFullscreen ? "h-full w-full" : "max-h-[70vh] w-full"
+                  )}
+                  draggable={false}
+                />
+              ) : null}
               {status !== "live" ? (
                 <p
                   className={cn(
@@ -132,12 +135,12 @@ export function ScreenSharePage() {
                     : "Waiting for frames..."}
                 </p>
               ) : null}
-              {status === "live" && hasFrame ? (
+              {status === "live" && frameUrl ? (
                 <span className="absolute bottom-3 left-3 rounded-md bg-black/60 px-2 py-1 text-xs text-white tabular-nums">
                   {fps} FPS
                 </span>
               ) : null}
-              {hasFrame ? (
+              {frameUrl ? (
                 <div className="absolute top-3 right-3 flex items-center gap-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

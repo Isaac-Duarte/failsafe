@@ -1,6 +1,10 @@
-import { Channel, invoke } from "@tauri-apps/api/core"
+import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useCallback, useEffect, useRef, useState } from "react"
+
+interface ScreenFrameEvent {
+  jpeg: number[]
+}
 
 export const SCREEN_QUALITY_PRESETS = [
   { value: "auto", label: "Auto" },
@@ -26,31 +30,11 @@ function loadStoredQuality(): ScreenQualityPreset {
   return "auto"
 }
 
-function drawJpegToCanvas(
-  canvas: HTMLCanvasElement,
-  jpeg: Uint8Array
-): Promise<void> {
-  const bytes = new Uint8Array(jpeg)
-  const blob = new Blob([bytes], { type: "image/jpeg" })
-  return createImageBitmap(blob).then((bitmap) => {
-    if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
-      canvas.width = bitmap.width
-      canvas.height = bitmap.height
-    }
-    const ctx = canvas.getContext("2d")
-    if (ctx) {
-      ctx.drawImage(bitmap, 0, 0)
-    }
-    bitmap.close()
-  })
-}
-
 export function useScreenShare(
   deviceId: string | undefined,
   deviceName: string | undefined
 ) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [hasFrame, setHasFrame] = useState(false)
+  const [frameUrl, setFrameUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error" | "stopped">(
     "idle"
   )
@@ -106,25 +90,12 @@ export function useScreenShare(
     }
 
     let active = true
+    let objectUrl: string | null = null
     const unlisteners: UnlistenFn[] = []
     const initialQuality = loadStoredQuality()
     setQualityState(initialQuality)
     setFps(0)
     frameCountRef.current = 0
-    setHasFrame(false)
-
-    const frameChannel = new Channel<Uint8Array>()
-    frameChannel.onmessage = (jpeg) => {
-      const canvas = canvasRef.current
-      if (!canvas) {
-        return
-      }
-      void drawJpegToCanvas(canvas, jpeg).then(() => {
-        setHasFrame(true)
-        frameCountRef.current += 1
-        setStatus("live")
-      })
-    }
 
     async function start() {
       setStatus("connecting")
@@ -135,7 +106,6 @@ export function useScreenShare(
           deviceId,
           deviceName: deviceName ?? deviceId,
           quality: initialQuality,
-          onFrame: frameChannel,
         })
         if (!active) {
           return
@@ -153,6 +123,23 @@ export function useScreenShare(
     }
 
     async function bindListeners() {
+      unlisteners.push(
+        await listen<ScreenFrameEvent>("screen-frame", (event) => {
+          const bytes = new Uint8Array(event.payload.jpeg)
+          const blob = new Blob([bytes], { type: "image/jpeg" })
+          const nextUrl = URL.createObjectURL(blob)
+          setFrameUrl((current) => {
+            if (current) {
+              URL.revokeObjectURL(current)
+            }
+            return nextUrl
+          })
+          objectUrl = nextUrl
+          frameCountRef.current += 1
+          setStatus("live")
+        })
+      )
+
       unlisteners.push(
         await listen<string>("screen-error", (event) => {
           setStatus("error")
@@ -173,9 +160,12 @@ export function useScreenShare(
       for (const unlisten of unlisteners) {
         unlisten()
       }
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
       void invoke("stop_screen_share").catch(() => undefined)
     }
   }, [deviceId, deviceName])
 
-  return { canvasRef, hasFrame, status, error, quality, fps, setQuality, stop }
+  return { frameUrl, status, error, quality, fps, setQuality, stop }
 }
