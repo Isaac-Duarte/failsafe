@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client"
 import { BrowserRouter } from "react-router-dom"
 
 import "../../failsafe-ui/src/index.css"
-import "./desktop.css"
 import App from "@/App"
 import { ThemeProvider, Toaster, TooltipProvider } from "@failsafe/ui"
 

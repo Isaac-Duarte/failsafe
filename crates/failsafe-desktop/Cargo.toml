@@ -18,9 +18,3 @@ failsafe-screen = { path = "../failsafe-screen" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
-tracing = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-bytemuck = { version = "1", features = ["derive"] }
-image = { workspace = true }
-wgpu = "24"

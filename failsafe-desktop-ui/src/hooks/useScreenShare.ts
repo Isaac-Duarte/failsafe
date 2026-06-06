@@ -1,34 +1,20 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { type RefObject, useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 interface ScreenFrameEvent {
   jpeg: number[]
 }
 
-type ViewerMode = "gpu" | "webview"
-
 export function useScreenShare(
   deviceId: string | undefined,
-  deviceName: string | undefined,
-  viewportRef: RefObject<HTMLElement | null>
+  deviceName: string | undefined
 ) {
-  const [viewerMode, setViewerMode] = useState<ViewerMode>("gpu")
   const [frameUrl, setFrameUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error" | "stopped">(
     "idle"
   )
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    void invoke<string>("screen_viewer_mode")
-      .then((mode) => {
-        setViewerMode(mode === "webview" ? "webview" : "gpu")
-      })
-      .catch(() => {
-        setViewerMode("gpu")
-      })
-  }, [])
 
   const stop = useCallback(async () => {
     try {
@@ -38,28 +24,6 @@ export function useScreenShare(
     }
     setStatus("stopped")
   }, [])
-
-  const syncViewport = useCallback(() => {
-    if (viewerMode !== "gpu") {
-      return
-    }
-
-    const element = viewportRef.current
-    if (!element) {
-      return
-    }
-
-    const rect = element.getBoundingClientRect()
-    const scale = window.devicePixelRatio || 1
-    void invoke("set_screen_viewport", {
-      bounds: {
-        x: Math.round(rect.left * scale),
-        y: Math.round(rect.top * scale),
-        width: Math.round(rect.width * scale),
-        height: Math.round(rect.height * scale),
-      },
-    }).catch(() => undefined)
-  }, [viewportRef, viewerMode])
 
   useEffect(() => {
     if (!deviceId) {
@@ -75,7 +39,6 @@ export function useScreenShare(
       setError(null)
 
       try {
-        syncViewport()
         await invoke("start_screen_share", {
           deviceId,
           deviceName: deviceName ?? deviceId,
@@ -84,7 +47,6 @@ export function useScreenShare(
           return
         }
         setStatus("live")
-        syncViewport()
       } catch (startError) {
         if (!active) {
           return
@@ -97,23 +59,21 @@ export function useScreenShare(
     }
 
     async function bindListeners() {
-      if (viewerMode === "webview") {
-        unlisteners.push(
-          await listen<ScreenFrameEvent>("screen-frame", (event) => {
-            const bytes = new Uint8Array(event.payload.jpeg)
-            const blob = new Blob([bytes], { type: "image/jpeg" })
-            const nextUrl = URL.createObjectURL(blob)
-            setFrameUrl((current) => {
-              if (current) {
-                URL.revokeObjectURL(current)
-              }
-              return nextUrl
-            })
-            objectUrl = nextUrl
-            setStatus("live")
+      unlisteners.push(
+        await listen<ScreenFrameEvent>("screen-frame", (event) => {
+          const bytes = new Uint8Array(event.payload.jpeg)
+          const blob = new Blob([bytes], { type: "image/jpeg" })
+          const nextUrl = URL.createObjectURL(blob)
+          setFrameUrl((current) => {
+            if (current) {
+              URL.revokeObjectURL(current)
+            }
+            return nextUrl
           })
-        )
-      }
+          objectUrl = nextUrl
+          setStatus("live")
+        })
+      )
 
       unlisteners.push(
         await listen<string>("screen-error", (event) => {
@@ -140,31 +100,7 @@ export function useScreenShare(
       }
       void invoke("stop_screen_share").catch(() => undefined)
     }
-  }, [deviceId, deviceName, syncViewport, viewerMode])
+  }, [deviceId, deviceName])
 
-  useEffect(() => {
-    if (viewerMode !== "gpu") {
-      return
-    }
-
-    syncViewport()
-
-    const observer = new ResizeObserver(() => {
-      syncViewport()
-    })
-
-    const element = viewportRef.current
-    if (element) {
-      observer.observe(element)
-    }
-
-    window.addEventListener("resize", syncViewport)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener("resize", syncViewport)
-    }
-  }, [syncViewport, viewportRef, viewerMode])
-
-  return { viewerMode, frameUrl, status, error, stop }
+  return { frameUrl, status, error, stop }
 }
