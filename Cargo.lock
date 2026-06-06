@@ -2346,6 +2346,7 @@ dependencies = [
 name = "failsafe-desktop"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "failsafe-core",
  "failsafe-screen",
  "image",

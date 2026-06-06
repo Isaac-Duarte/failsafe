@@ -1,8 +1,12 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { useCallback, useEffect, useState } from "react"
+import { type RefObject, useCallback, useEffect, useState } from "react"
 
-export function useScreenShare(deviceId: string | undefined, deviceName: string | undefined) {
+export function useScreenShare(
+  deviceId: string | undefined,
+  deviceName: string | undefined,
+  viewportRef: RefObject<HTMLElement | null>
+) {
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error" | "stopped">(
     "idle"
   )
@@ -17,6 +21,24 @@ export function useScreenShare(deviceId: string | undefined, deviceName: string 
     setStatus("stopped")
   }, [])
 
+  const syncViewport = useCallback(() => {
+    const element = viewportRef.current
+    if (!element) {
+      return
+    }
+
+    const rect = element.getBoundingClientRect()
+    const scale = window.devicePixelRatio || 1
+    void invoke("set_screen_viewport", {
+      bounds: {
+        x: Math.round(rect.left * scale),
+        y: Math.round(rect.top * scale),
+        width: Math.round(rect.width * scale),
+        height: Math.round(rect.height * scale),
+      },
+    }).catch(() => undefined)
+  }, [viewportRef])
+
   useEffect(() => {
     if (!deviceId) {
       return
@@ -30,6 +52,7 @@ export function useScreenShare(deviceId: string | undefined, deviceName: string 
       setError(null)
 
       try {
+        syncViewport()
         await invoke("start_screen_share", {
           deviceId,
           deviceName: deviceName ?? deviceId,
@@ -38,6 +61,7 @@ export function useScreenShare(deviceId: string | undefined, deviceName: string 
           return
         }
         setStatus("live")
+        syncViewport()
       } catch (startError) {
         if (!active) {
           return
@@ -72,7 +96,27 @@ export function useScreenShare(deviceId: string | undefined, deviceName: string 
       }
       void invoke("stop_screen_share").catch(() => undefined)
     }
-  }, [deviceId, deviceName])
+  }, [deviceId, deviceName, syncViewport])
+
+  useEffect(() => {
+    syncViewport()
+
+    const observer = new ResizeObserver(() => {
+      syncViewport()
+    })
+
+    const element = viewportRef.current
+    if (element) {
+      observer.observe(element)
+    }
+
+    window.addEventListener("resize", syncViewport)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", syncViewport)
+    }
+  }, [syncViewport, viewportRef])
 
   return { status, error, stop }
 }

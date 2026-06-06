@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useRef } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
 import { Monitor, X } from "lucide-react"
 
@@ -20,7 +20,8 @@ export function ScreenSharePage() {
   const { deviceId } = useParams()
   const [searchParams] = useSearchParams()
   const deviceName = searchParams.get("name") ?? deviceId ?? "Device"
-  const { status, error, stop } = useScreenShare(deviceId, deviceName)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const { status, error, stop } = useScreenShare(deviceId, deviceName, viewportRef)
 
   const statusLabel = useMemo(() => {
     switch (status) {
@@ -50,7 +51,7 @@ export function ScreenSharePage() {
         }
       >
         <div className="flex w-full flex-col gap-6">
-          <div className="flex items-start justify-between gap-4 rounded-xl bg-background/90 p-4 backdrop-blur-sm">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Screen share</h1>
               <p className="text-sm text-muted-foreground">
@@ -64,12 +65,12 @@ export function ScreenSharePage() {
           </div>
 
           {error ? (
-            <Alert variant="destructive" className="bg-background/90 backdrop-blur-sm">
+            <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
 
-          <Card className="bg-card/90 shadow-lg ring-1 ring-border/50 backdrop-blur-sm">
+          <Card className="shadow-lg ring-1 ring-border/50">
             <CardHeader>
               <CardTitle>Remote display</CardTitle>
               <CardDescription>
@@ -77,9 +78,12 @@ export function ScreenSharePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="screen-viewport relative flex min-h-[24rem] items-center justify-center overflow-hidden rounded-lg border border-border/50">
+              <div
+                ref={viewportRef}
+                className="screen-viewport relative flex min-h-[24rem] items-center justify-center overflow-hidden rounded-lg border border-border/50"
+              >
                 {status !== "live" ? (
-                  <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground backdrop-blur-sm">
+                  <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                     {status === "connecting"
                       ? "Opening screen share session..."
                       : "Waiting for frames..."}

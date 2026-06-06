@@ -13,6 +13,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+bytemuck = { version = "1", features = ["derive"] }
 failsafe-core = { path = "../failsafe-core" }
 failsafe-screen = { path = "../failsafe-screen" }
 image = { workspace = true }

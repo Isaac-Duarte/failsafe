@@ -1,14 +1,3 @@
-html,
-body,
-#root {
-  background: transparent;
-}
-
-.desktop-screen-share .page-ambient {
-  background: transparent;
-  background-image: none;
-}
-
 .desktop-screen-share .screen-viewport {
   background: transparent;
 }
