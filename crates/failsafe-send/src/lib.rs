@@ -1,4 +1,5 @@
 mod coordinator;
+mod log;
 mod feature;
 mod files;
 mod inbound;
@@ -12,6 +13,7 @@ mod transfer_state;
 mod integration_tests;
 
 pub use coordinator::SendCoordinator;
+pub use log::eprint_send;
 pub use feature::SendFeature;
 pub use files::{collect_file_preview, collect_import_sources, format_bytes, read_files_from_paths};
 pub use inbound::save_received_files;

@@ -159,6 +159,19 @@ pub async fn handle_incoming_bi_stream(
         }
         Err(error) => warn!(%device, "failed to decode inbound frame: {error}"),
     }
+
+    // Drain the receive half so the remote peer's `finish()` cannot block on flow control.
+    tokio::spawn(async move {
+        drop(send);
+        let mut buf = [0u8; 1024];
+        loop {
+            match recv.read(&mut buf).await {
+                Ok(Some(0)) | Ok(None) => break,
+                Ok(Some(_)) => {}
+                Err(_) => break,
+            }
+        }
+    });
 }
 
 pub async fn relay_shell_streams<R, W>(

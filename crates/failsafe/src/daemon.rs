@@ -164,7 +164,7 @@ impl DaemonBuilder {
         let send_coordinator = SendCoordinator::new();
         registry.register(Box::new(SendFeature::new(
             blob_transfer.clone(),
-            self.clipboard_limits,
+            ClipboardLimits::unlimited(),
             transport.clone(),
             send_coordinator.clone(),
         )))?;
@@ -189,7 +189,7 @@ impl DaemonBuilder {
             iroh_public_key: self.iroh_public_key,
             iroh: self.iroh,
             blob_transfer,
-            send_limits: self.clipboard_limits,
+            send_limits: ClipboardLimits::unlimited(),
             shell_sessions: None,
             port_sessions: None,
             config_path: None,
@@ -411,9 +411,20 @@ impl Daemon {
                     };
                     if message.feature == FeatureId::FileSend {
                         if let Some(ack) = parse_ack(&message.payload) {
+                            tracing::debug!(
+                                from = %message.from,
+                                transfer_id = %ack.transfer_id,
+                                ok = ack.ok,
+                                "routing inbound file send acknowledgement to coordinator"
+                            );
                             self.send_coordinator.complete_ack(ack).await;
                             continue;
                         }
+                        tracing::debug!(
+                            from = %message.from,
+                            bytes = message.payload.len(),
+                            "dispatching inbound file send message"
+                        );
                     }
                     self.registry.dispatch(message).await?;
                 }

@@ -12,8 +12,8 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    encode_envelope, mark_send_complete, mark_send_failed, prepare_send_payload, SendCoordinator,
-    SendEnvelope,
+    encode_envelope, eprint_send, mark_send_complete, mark_send_failed, prepare_send_payload,
+    SendCoordinator, SendEnvelope,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -22,7 +22,7 @@ use failsafe_core::control::{bind_control, ControlListener, ControlStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::control::{
@@ -355,32 +355,37 @@ impl ControlServer {
             write_half
         });
 
-        let progress_tx_for_callback = progress_tx.clone();
-        let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
-            Box::new(move |phase, bytes_done, bytes_total, current_file| {
-                let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
-                    phase,
-                    bytes_done,
-                    bytes_total,
-                    current_file,
-                });
-            });
-
         let ack_rx = self.coordinator.register(transfer_id).await;
+        info!(%transfer_id, %target, resume, "starting file send");
+        eprint_send(format_args!(
+            " starting send {transfer_id} -> {target} (resume={resume})"
+        ));
 
         let result = async {
-            let payload = prepare_send_payload(
-                &paths,
-                target,
-                self.blob_transfer.clone(),
-                self.send_limits,
-                self.device_name.clone(),
-                transfer_id,
-                resume,
-                &cancel,
-                &mut emit_progress,
-            )
-            .await?;
+            let payload = {
+                let progress_tx_for_callback = progress_tx.clone();
+                let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
+                    Box::new(move |phase, bytes_done, bytes_total, current_file| {
+                        let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
+                            phase,
+                            bytes_done,
+                            bytes_total,
+                            current_file,
+                        });
+                    });
+                prepare_send_payload(
+                    &paths,
+                    target,
+                    self.blob_transfer.clone(),
+                    self.send_limits,
+                    self.device_name.clone(),
+                    transfer_id,
+                    resume,
+                    &cancel,
+                    &mut emit_progress,
+                )
+                .await?
+            };
 
             if cancel.is_cancelled() {
                 return Err("transfer cancelled".to_owned());
@@ -404,11 +409,18 @@ impl ControlServer {
                 encode_envelope(&envelope),
             );
             let transport = self.transport.clone();
+            let send_transfer_id = transfer_id;
             let send_task = tokio::spawn(async move {
-                transport
+                debug!(%send_transfer_id, "sending transfer metadata message");
+                let result = transport
                     .send(transfer_message)
                     .await
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error.to_string());
+                match &result {
+                    Ok(()) => debug!(%send_transfer_id, "transfer metadata message sent"),
+                    Err(message) => warn!(%send_transfer_id, %message, "transfer metadata send failed"),
+                }
+                result
             });
 
             let _ = progress_tx
@@ -421,24 +433,40 @@ impl ControlServer {
                 .await;
             drop(progress_tx);
 
+            info!(%transfer_id, %target, "waiting for receiver acknowledgement");
+            eprint_send(format_args!(
+                " waiting for ack transfer_id={transfer_id} target={target}"
+            ));
             match tokio::time::timeout(SEND_ACK_TIMEOUT, ack_rx).await {
                 Ok(Ok(Ok(()))) => {
-                    send_task.abort();
+                    info!(%transfer_id, %target, "receiver acknowledged file transfer");
+                    eprint_send(format_args!(" ack received for {transfer_id}"));
+                    tokio::spawn(async move {
+                        let _ = send_task.await;
+                    });
                     Ok(())
                 }
                 Ok(Ok(Err(message))) => {
+                    warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
                     send_task.abort();
                     Err(message)
                 }
                 Ok(Err(_)) => {
+                    warn!(%transfer_id, %target, "acknowledgement channel closed before response");
                     send_task.abort();
                     Err("transfer acknowledgement channel closed".to_owned())
                 }
-                Err(_) => match send_task.await {
-                    Ok(Err(message)) => Err(message),
-                    Ok(Ok(())) => Err("timed out waiting for receiver acknowledgement".to_owned()),
-                    Err(_) => Err("transfer send task failed".to_owned()),
-                },
+                Err(_) => {
+                    warn!(%transfer_id, %target, "timed out waiting for receiver acknowledgement");
+                    eprint_send(format_args!(" ack timeout for {transfer_id}"));
+                    match send_task.await {
+                        Ok(Err(message)) => Err(message),
+                        Ok(Ok(())) => {
+                            Err("timed out waiting for receiver acknowledgement".to_owned())
+                        }
+                        Err(_) => Err("transfer send task failed".to_owned()),
+                    }
+                }
             }
         }
         .await;

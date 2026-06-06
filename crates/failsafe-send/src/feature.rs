@@ -7,10 +7,11 @@ use failsafe_core::feature::{Feature, FeatureError, FeatureId};
 use failsafe_core::message::FeatureMessage;
 use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
-use tracing::info;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::coordinator::SendCoordinator;
+use crate::log::eprint_send;
 use crate::inbound::receive_dir;
 use crate::notify::notify_files_received;
 use crate::payload::{decode_envelope, encode_envelope, SendAck, SendEnvelope};
@@ -72,12 +73,36 @@ impl SendFeature {
         from: DeviceId,
         payload: crate::payload::SendPayload,
     ) -> Result<(), FeatureError> {
+        info!(
+            %from,
+            transfer_id = %payload.transfer_id,
+            files = payload.entries.len(),
+            bytes = payload.entries.iter().map(|entry| entry.size).sum::<u64>(),
+            "received file transfer"
+        );
+        eprint_send(format_args!(
+            " received transfer {} from {from} ({} files)",
+            payload.transfer_id,
+            payload.entries.len()
+        ));
+
         let mut state = match load_receive_state(payload.transfer_id).await {
-            Ok(saved) => saved,
+            Ok(saved) => {
+                info!(
+                    transfer_id = %payload.transfer_id,
+                    stage = ?saved.stage,
+                    "resuming saved receive state"
+                );
+                saved
+            }
             Err(_) => receive_state_from_payload(from, &payload),
         };
 
         if state.stage == ReceiveStage::Complete {
+            info!(
+                transfer_id = %payload.transfer_id,
+                "receive already complete, sending acknowledgement"
+            );
             return self
                 .send_ack(
                     from,
@@ -96,9 +121,34 @@ impl SendFeature {
         state.entries = payload.entries.clone();
         state.bytes_total = payload.entries.iter().map(|entry| entry.size).sum();
 
-        self.run_receive(self.blob_transfer.clone(), &mut state)
+        match self
+            .run_receive(self.blob_transfer.clone(), &mut state)
             .await
-            .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error))?;
+        {
+            Ok(()) => {}
+            Err(message) => {
+                error!(
+                    transfer_id = %payload.transfer_id,
+                    %message,
+                    "file receive failed before acknowledgement"
+                );
+                eprint_send(format_args!(
+                    " receive failed for {}: {message}",
+                    payload.transfer_id
+                ));
+                let _ = self
+                    .send_ack(
+                        from,
+                        SendAck {
+                            transfer_id: payload.transfer_id,
+                            ok: false,
+                            error: Some(message.clone()),
+                        },
+                    )
+                    .await;
+                return Err(FeatureError::Failed(FeatureId::FileSend, message));
+            }
+        }
 
         self.send_ack(
             from,
@@ -128,6 +178,11 @@ impl SendFeature {
 
         state.stage = ReceiveStage::Downloading;
         save_receive_state(state).await?;
+        info!(
+            transfer_id = %state.transfer_id,
+            bytes_total = state.bytes_total,
+            "downloading file collection"
+        );
 
         let root = BlobHash::from(state.collection_hash.as_str());
         blob_transfer
@@ -144,6 +199,7 @@ impl SendFeature {
 
         state.stage = ReceiveStage::Exporting;
         save_receive_state(state).await?;
+        info!(transfer_id = %state.transfer_id, "exporting received files");
 
         let receive_dir = state
             .receive_dir
@@ -189,13 +245,32 @@ impl SendFeature {
     }
 
     async fn send_ack(&self, to: DeviceId, ack: SendAck) -> Result<(), FeatureError> {
+        let transfer_id = ack.transfer_id;
+        let ok = ack.ok;
+        info!(%transfer_id, %to, ok, "sending file transfer acknowledgement");
+        eprint_send(format_args!(
+            " sending ack transfer_id={transfer_id} to={to} ok={ok}"
+        ));
+
         let local_id = self.transport.local_device_id();
         let envelope = SendEnvelope::Ack(ack);
         let message = FeatureMessage::new(local_id, to, FeatureId::FileSend, encode_envelope(&envelope));
-        self.transport
-            .send(message)
-            .await
-            .map_err(transport_error_to_feature_error)
+        match self.transport.send(message).await {
+            Ok(()) => {
+                info!(%transfer_id, %to, ok, "file transfer acknowledgement sent");
+                eprint_send(format_args!(
+                    " ack sent transfer_id={transfer_id} to={to} ok={ok}"
+                ));
+                Ok(())
+            }
+            Err(error) => {
+                warn!(%transfer_id, %to, ok, %error, "failed to send file transfer acknowledgement");
+                eprint_send(format_args!(
+                    " ack send failed transfer_id={transfer_id} to={to}: {error}"
+                ));
+                Err(transport_error_to_feature_error(error))
+            }
+        }
     }
 }
 
@@ -227,7 +302,20 @@ impl Feature for SendFeature {
     async fn handle_message(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
         let envelope = decode_envelope(&message.payload)?;
         match envelope {
-            SendEnvelope::Transfer(payload) => self.handle_transfer(message.from, payload).await,
+            SendEnvelope::Transfer(payload) => {
+                let from = message.from;
+                let blob_transfer = self.blob_transfer.clone();
+                let limits = self.limits;
+                let transport = self.transport.clone();
+                let coordinator = self.coordinator.clone();
+                tokio::spawn(async move {
+                    let feature = SendFeature::new(blob_transfer, limits, transport, coordinator);
+                    if let Err(error) = feature.handle_transfer(from, payload).await {
+                        error!(%error, "file transfer handler failed");
+                    }
+                });
+                Ok(())
+            }
             SendEnvelope::Ack(ack) => self.handle_ack(ack).await,
         }
     }
@@ -292,9 +380,15 @@ mod tests {
             .await
             .unwrap();
 
-        let ack_message = local_transport.try_recv().await.unwrap().unwrap();
-        assert_eq!(ack_message.feature, FeatureId::FileSend);
-        let ack = decode_envelope(&ack_message.payload).unwrap();
-        assert!(matches!(ack, SendEnvelope::Ack(SendAck { ok: true, .. })));
+        for _ in 0..50 {
+            if let Ok(Some(ack_message)) = local_transport.try_recv().await {
+                assert_eq!(ack_message.feature, FeatureId::FileSend);
+                let ack = decode_envelope(&ack_message.payload).unwrap();
+                assert!(matches!(ack, SendEnvelope::Ack(SendAck { ok: true, .. })));
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("timed out waiting for transfer acknowledgement");
     }
 }

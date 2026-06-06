@@ -14,6 +14,13 @@ impl Default for ClipboardLimits {
 }
 
 impl ClipboardLimits {
+    pub fn unlimited() -> Self {
+        Self {
+            max_file_bytes: u64::MAX,
+            max_total_bytes: u64::MAX,
+        }
+    }
+
     pub fn validate_files(&self, files: &[(String, Vec<u8>)]) -> Result<(), String> {
         let mut total = 0u64;
         for (name, data) in files {
@@ -63,5 +70,18 @@ impl ClipboardLimits {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unlimited_accepts_large_entries() {
+        let limits = ClipboardLimits::unlimited();
+        limits
+            .validate_entries(&[("big.bin".to_owned(), u64::MAX)])
+            .unwrap();
     }
 }

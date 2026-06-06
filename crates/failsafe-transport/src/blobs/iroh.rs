@@ -234,6 +234,12 @@ impl BlobTransfer for IrohBlobTransfer {
             });
         }
 
+        progress(BlobProgress {
+            bytes_done: total_bytes,
+            bytes_total: total_bytes,
+            current_file: None,
+        });
+
         let collection = Collection::from_iter(entries);
         let root = collection
             .store(&self.store)
@@ -244,12 +250,6 @@ impl BlobTransfer for IrohBlobTransfer {
             .create(root.hash_and_format())
             .await
             .map_err(|error| BlobError::Store(error.to_string()))?;
-
-        progress(BlobProgress {
-            bytes_done: total_bytes,
-            bytes_total: total_bytes,
-            current_file: None,
-        });
 
         Ok((BlobHash(root.hash().to_hex()), imported))
     }
@@ -307,6 +307,18 @@ impl BlobTransfer for IrohBlobTransfer {
             }
         }
 
+        let local = self
+            .store
+            .remote()
+            .local(hash_and_format)
+            .await
+            .map_err(|error| BlobError::Store(error.to_string()))?;
+        if !local.is_complete() {
+            return Err(BlobError::Store(
+                "download ended before collection was complete".to_owned(),
+            ));
+        }
+
         progress(BlobProgress {
             bytes_done: total_bytes,
             bytes_total: total_bytes,
@@ -341,10 +353,17 @@ impl BlobTransfer for IrohBlobTransfer {
                 })?;
             }
             if target.exists() {
-                return Err(BlobError::Store(format!(
-                    "export target already exists: {}",
-                    target.display()
-                )));
+                tracing::info!(
+                    path = %target.display(),
+                    "export target already exists, skipping"
+                );
+                paths.push(target);
+                progress(BlobProgress {
+                    bytes_done: index as u64 + 1,
+                    bytes_total: total_files,
+                    current_file: Some(name.clone()),
+                });
+                continue;
             }
 
             progress(BlobProgress {

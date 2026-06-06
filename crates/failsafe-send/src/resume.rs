@@ -6,6 +6,7 @@ use failsafe_transport::transport::Transport;
 use tracing::{info, warn};
 
 use crate::feature::SendFeature;
+use crate::log::eprint_send;
 use crate::transfer_state::{list_incomplete_receives, ReceiveStage, ReceiveTransferState};
 
 pub async fn resume_incomplete_receives(
@@ -40,11 +41,18 @@ pub async fn resume_incomplete_receives(
         );
         match feature.resume_receive(blob_transfer.clone(), state).await {
             Ok(()) => {
+                info!(%transfer_id, %sender, "resumed receive complete, sending acknowledgement");
+                eprint_send(format_args!(
+                    " resume complete for {transfer_id}, sending ack to {sender}"
+                ));
                 if let Err(error) = feature
                     .acknowledge_completed_receive(sender, transfer_id)
                     .await
                 {
-                    warn!(%transfer_id, "failed to send receive acknowledgement: {error}");
+                    warn!(%transfer_id, %sender, %error, "failed to send receive acknowledgement");
+                    eprint_send(format_args!(
+                        " resume ack failed for {transfer_id}: {error}"
+                    ));
                 }
             }
             Err(error) => {
