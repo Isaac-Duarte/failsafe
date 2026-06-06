@@ -1,7 +1,10 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::warn;
 
-use crate::protocol::{PACKET_TAG_CONTROL, ProtocolError, read_tagged_packet, write_tagged_packet};
+use crate::protocol::{
+    PACKET_TAG_CONTROL, PACKET_TAG_FRAME, ProtocolError, read_tagged_packet,
+    write_tagged_packet, write_tagged_packet_with_flush,
+};
 
 pub async fn relay_tagged_bidirectional<Ri, Wi, Ro, Wo>(
     mut inbound_read: Ri,
@@ -19,7 +22,9 @@ where
         loop {
             match read_tagged_packet(&mut inbound_read).await {
                 Ok((tag, payload)) => {
-                    write_tagged_packet(&mut outbound_write, tag, &payload).await?;
+                    let flush = tag != PACKET_TAG_FRAME;
+                    write_tagged_packet_with_flush(&mut outbound_write, tag, &payload, flush)
+                        .await?;
                 }
                 Err(ProtocolError::Io(error))
                     if error.kind() == std::io::ErrorKind::UnexpectedEof =>

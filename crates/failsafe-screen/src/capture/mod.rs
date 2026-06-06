@@ -28,25 +28,41 @@ pub trait ScreenCapturer {
     fn capture(&mut self) -> Result<CapturedFrame, CaptureError>;
 }
 
-struct XcapCapturer;
+pub(crate) fn primary_monitor() -> Result<Monitor, CaptureError> {
+    let monitors = Monitor::all().map_err(|error| CaptureError::Capture(error.to_string()))?;
+    monitors
+        .into_iter()
+        .next()
+        .ok_or(CaptureError::NoMonitors)
+}
+
+pub(crate) fn capture_monitor(monitor: &Monitor) -> Result<CapturedFrame, CaptureError> {
+    let image = monitor
+        .capture_image()
+        .map_err(|error| CaptureError::Image(error.to_string()))?;
+
+    Ok(CapturedFrame {
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
+    })
+}
+
+struct XcapCapturer {
+    monitor: Monitor,
+}
+
+impl XcapCapturer {
+    fn new() -> Result<Self, CaptureError> {
+        Ok(Self {
+            monitor: primary_monitor()?,
+        })
+    }
+}
 
 impl ScreenCapturer for XcapCapturer {
     fn capture(&mut self) -> Result<CapturedFrame, CaptureError> {
-        let monitors = Monitor::all().map_err(|error| CaptureError::Capture(error.to_string()))?;
-        let monitor = monitors
-            .into_iter()
-            .next()
-            .ok_or(CaptureError::NoMonitors)?;
-
-        let image = monitor
-            .capture_image()
-            .map_err(|error| CaptureError::Image(error.to_string()))?;
-
-        Ok(CapturedFrame {
-            width: image.width(),
-            height: image.height(),
-            rgba: image.into_raw(),
-        })
+        capture_monitor(&self.monitor)
     }
 }
 
@@ -69,5 +85,5 @@ pub fn create_capturer() -> Result<Box<dyn ScreenCapturer>, CaptureError> {
     }
 
     #[cfg(not(target_os = "linux"))]
-    Ok(Box::new(XcapCapturer))
+    Ok(Box::new(XcapCapturer::new()?))
 }

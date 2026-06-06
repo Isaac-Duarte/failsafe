@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use failsafe_core::device::DeviceId;
 use failsafe_screen::{ScreenQualityPreset, ScreenViewerClient};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
 use tokio::sync::{mpsc, Mutex};
 
 struct ScreenShareRuntime {
@@ -19,11 +19,6 @@ impl ScreenShareRuntime {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-struct ScreenFramePayload {
-    jpeg: Vec<u8>,
-}
-
 fn launch_args() -> (Option<String>, Option<String>) {
     let args: Vec<String> = std::env::args().collect();
     let device_id = args
@@ -38,7 +33,7 @@ fn launch_args() -> (Option<String>, Option<String>) {
 }
 
 fn navigate_to_screen_share(
-    window: &WebviewWindow,
+    window: &tauri::WebviewWindow,
     device_id: &str,
     device_name: Option<&str>,
 ) -> Result<(), String> {
@@ -65,6 +60,7 @@ async fn start_screen_share(
     device_id: String,
     device_name: Option<String>,
     quality: Option<String>,
+    on_frame: Channel<Vec<u8>>,
 ) -> Result<(), String> {
     stop_screen_share(app.clone(), runtime.clone()).await?;
 
@@ -92,8 +88,7 @@ async fn start_screen_share(
     let mut frames = client.frames;
     let task = tokio::spawn(async move {
         while let Some(jpeg) = frames.recv().await {
-            let payload = ScreenFramePayload { jpeg };
-            if app_handle.emit("screen-frame", payload).is_err() {
+            if on_frame.send(jpeg).is_err() {
                 break;
             }
         }

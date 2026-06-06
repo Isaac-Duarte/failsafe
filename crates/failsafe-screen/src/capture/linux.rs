@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use tracing::{debug, warn};
 use xcap::Monitor;
 
-use super::{CaptureError, CapturedFrame};
+use super::{CaptureError, CapturedFrame, capture_monitor, primary_monitor};
 
 pub struct LinuxCapturer {
     backend: LinuxBackend,
@@ -23,7 +23,9 @@ enum LinuxBackend {
         width: u32,
         height: u32,
     },
-    Xcap,
+    Xcap {
+        monitor: Monitor,
+    },
 }
 
 impl LinuxCapturer {
@@ -39,7 +41,9 @@ impl LinuxCapturer {
                 debug!("non-wlroots wayland session, using xcap screen capture");
             }
             Ok(Self {
-                backend: LinuxBackend::Xcap,
+                backend: LinuxBackend::Xcap {
+                    monitor: primary_monitor()?,
+                },
             })
         } else if let Ok(capturer) = Self::try_x11() {
             debug!("using x11 scrap screen capture");
@@ -47,7 +51,9 @@ impl LinuxCapturer {
         } else {
             debug!("falling back to xcap screen capture on x11");
             Ok(Self {
-                backend: LinuxBackend::Xcap,
+                backend: LinuxBackend::Xcap {
+                    monitor: primary_monitor()?,
+                },
             })
         }
     }
@@ -68,11 +74,15 @@ impl LinuxCapturer {
                 Ok(frame) => Ok(frame),
                 Err(error) => {
                     warn!("wlroots capture failed, falling back to xcap: {error}");
-                    self.backend = LinuxBackend::Xcap;
-                    capture_xcap()
+                    let monitor = primary_monitor()?;
+                    self.backend = LinuxBackend::Xcap { monitor };
+                    match &self.backend {
+                        LinuxBackend::Xcap { monitor } => capture_monitor(monitor),
+                        _ => unreachable!(),
+                    }
                 }
             },
-            LinuxBackend::Xcap => capture_xcap(),
+            LinuxBackend::Xcap { monitor } => capture_monitor(monitor),
         }
     }
 
@@ -206,22 +216,6 @@ fn capture_wayland_wlroots(
         width,
         height,
         rgba,
-    })
-}
-
-fn capture_xcap() -> Result<CapturedFrame, CaptureError> {
-    let monitors = Monitor::all().map_err(|error| CaptureError::Capture(error.to_string()))?;
-    let monitor = monitors
-        .into_iter()
-        .next()
-        .ok_or(CaptureError::NoMonitors)?;
-    let image = monitor
-        .capture_image()
-        .map_err(|error| CaptureError::Image(error.to_string()))?;
-    Ok(CapturedFrame {
-        width: image.width(),
-        height: image.height(),
-        rgba: image.into_raw(),
     })
 }
 

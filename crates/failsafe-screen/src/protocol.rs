@@ -85,9 +85,23 @@ pub async fn write_tagged_packet<W>(
 where
     W: AsyncWrite + Unpin,
 {
+    write_tagged_packet_with_flush(writer, tag, payload, true).await
+}
+
+pub async fn write_tagged_packet_with_flush<W>(
+    writer: &mut W,
+    tag: u8,
+    payload: &[u8],
+    flush: bool,
+) -> Result<(), ProtocolError>
+where
+    W: AsyncWrite + Unpin,
+{
     let packet = encode_tagged_packet(tag, payload);
     writer.write_all(&packet).await?;
-    writer.flush().await?;
+    if flush {
+        writer.flush().await?;
+    }
     Ok(())
 }
 

@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use image::codecs::jpeg::JpegEncoder;
-use image::{ExtendedColorType, ImageEncoder};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc as async_mpsc;
 use tracing::{debug, warn};
+use turbojpeg::{Compressor, Image, PixelFormat};
 
 use crate::capture::{CaptureError, CapturedFrame, create_capturer};
 use crate::preprocess::FramePreprocessor;
@@ -33,13 +33,15 @@ pub enum ScreenHostError {
 
 struct FrameEncoder {
     preprocessor: FramePreprocessor,
+    compressor: Compressor,
 }
 
 impl FrameEncoder {
-    fn new(settings: &ScreenSettings) -> Self {
-        Self {
+    fn new(settings: &ScreenSettings) -> Result<Self, ScreenHostError> {
+        Ok(Self {
             preprocessor: FramePreprocessor::new(settings.max_width),
-        }
+            compressor: Compressor::new().map_err(|error| ScreenHostError::Encode(error.to_string()))?,
+        })
     }
 
     fn sync_settings(&mut self, settings: &ScreenSettings) {
@@ -53,11 +55,16 @@ impl FrameEncoder {
     ) -> Result<Vec<u8>, ScreenHostError> {
         let (width, height) =
             crate::preprocess::output_dimensions(frame.width, frame.height, settings.max_width);
-        let rgb = self
-            .preprocessor
+        self.preprocessor
             .rgba_to_rgb(frame.rgba, frame.width, frame.height)
             .map_err(ScreenHostError::Encode)?;
-        encode_jpeg_rgb(&rgb, width, height, settings.jpeg_quality)
+        encode_jpeg_rgb(
+            &mut self.compressor,
+            self.preprocessor.rgb_pixels(),
+            width,
+            height,
+            settings.jpeg_quality,
+        )
     }
 }
 
@@ -67,25 +74,24 @@ pub async fn run_screen_host(
 ) -> Result<(), ScreenHostError> {
     debug!("screen host started");
     let settings = Arc::new(Mutex::new(ScreenSettings::default()));
-    let (frame_tx, mut frame_rx) = mpsc::channel(1);
-    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
+    let latest_frame: Arc<Mutex<Option<CapturedFrame>>> = Arc::new(Mutex::new(None));
+    let (frame_tx, mut frame_rx) = async_mpsc::channel(1);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
     let capture_settings = settings.clone();
     let capture_shutdown_rx = shutdown_rx;
+    let capture_latest = latest_frame.clone();
     let capture_handle = thread::spawn(move || {
-        let initial = *capture_settings.lock().expect("settings lock");
         let mut capturer = match create_capturer() {
             Ok(capturer) => capturer,
             Err(error) => return Err::<(), CaptureError>(error),
         };
-        let mut encoder = FrameEncoder::new(&initial);
         loop {
             if capture_shutdown_rx.try_recv().is_ok() {
                 return Ok(());
             }
 
             let current = *capture_settings.lock().expect("settings lock");
-            encoder.sync_settings(&current);
             let interval = Duration::from_millis(1000 / current.target_fps.max(1));
 
             let started = Instant::now();
@@ -98,29 +104,58 @@ pub async fn run_screen_host(
                 }
             };
 
-            match encoder.encode_frame(frame, &current) {
-                Ok(jpeg) => match frame_tx.try_send(jpeg) {
-                    Ok(()) => {}
-                    Err(mpsc::error::TrySendError::Full(_)) => {
-                        warn!("dropping screen frame because viewer is behind");
-                    }
-                    Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
-                },
-                Err(ScreenHostError::Encode(message)) => {
-                    warn!("screen encode failed: {message}");
-                }
-                Err(_) => unreachable!(),
-            }
+            *capture_latest.lock().expect("latest frame lock") = Some(frame);
 
             let elapsed = started.elapsed();
             if elapsed > interval {
                 warn!(
                     frame_ms = elapsed.as_millis() as u64,
                     target_ms = interval.as_millis() as u64,
-                    "screen frame over budget"
+                    "screen capture over budget"
                 );
             } else {
                 thread::sleep(interval - elapsed);
+            }
+        }
+    });
+
+    let encode_settings = settings.clone();
+    let encode_latest = latest_frame;
+    let encode_handle = thread::spawn(move || {
+        let initial = *encode_settings.lock().expect("settings lock");
+        let mut encoder = match FrameEncoder::new(&initial) {
+            Ok(encoder) => encoder,
+            Err(error) => {
+                warn!("screen encoder init failed: {error}");
+                return;
+            }
+        };
+
+        loop {
+            let frame = {
+                let mut slot = encode_latest.lock().expect("latest frame lock");
+                slot.take()
+            };
+            let Some(frame) = frame else {
+                thread::sleep(Duration::from_millis(1));
+                continue;
+            };
+
+            let current = *encode_settings.lock().expect("settings lock");
+            encoder.sync_settings(&current);
+
+            match encoder.encode_frame(frame, &current) {
+                Ok(jpeg) => match frame_tx.try_send(jpeg) {
+                    Ok(()) => {}
+                    Err(async_mpsc::error::TrySendError::Full(_)) => {
+                        warn!("dropping screen frame because viewer is behind");
+                    }
+                    Err(async_mpsc::error::TrySendError::Closed(_)) => break,
+                },
+                Err(ScreenHostError::Encode(message)) => {
+                    warn!("screen encode failed: {message}");
+                }
+                Err(_) => unreachable!(),
             }
         }
     });
@@ -158,33 +193,75 @@ pub async fn run_screen_host(
 
     while let Some(jpeg) = frame_rx.recv().await {
         let packet = encode_frame(&jpeg);
-        send.write_all(&packet)
+        if send
+            .write_all(&packet)
             .await
-            .map_err(|error| ScreenHostError::Stream(error.to_string()))?;
+            .map_err(|error| ScreenHostError::Stream(error.to_string()))
+            .is_err()
+        {
+            break;
+        }
     }
 
     let _ = shutdown_tx.send(());
     control_task.abort();
 
     match capture_handle.join() {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(ScreenHostError::Stream(
-            "screen capture thread panicked".to_owned(),
-        )),
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => {
+            return Err(ScreenHostError::Stream(
+                "screen capture thread panicked".to_owned(),
+            ));
+        }
     }
+
+    if encode_handle.join().is_err() {
+        return Err(ScreenHostError::Stream(
+            "screen encode thread panicked".to_owned(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn encode_jpeg_rgb(
+    compressor: &mut Compressor,
     rgb: &[u8],
     width: u32,
     height: u32,
     quality: u8,
 ) -> Result<Vec<u8>, ScreenHostError> {
-    let mut jpeg = Vec::new();
-    let encoder = JpegEncoder::new_with_quality(&mut jpeg, quality);
-    encoder
-        .write_image(rgb, width, height, ExtendedColorType::Rgb8)
+    let width = width as usize;
+    let height = height as usize;
+    let image = Image {
+        pixels: rgb,
+        width,
+        pitch: width * 3,
+        height,
+        format: PixelFormat::RGB,
+    };
+    compressor
+        .set_quality(i32::from(quality))
         .map_err(|error| ScreenHostError::Encode(error.to_string()))?;
-    Ok(jpeg)
+    compressor
+        .compress_to_vec(image)
+        .map_err(|error| ScreenHostError::Encode(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turbojpeg_encode_produces_jpeg_magic() {
+        let width = 4u32;
+        let height = 4u32;
+        let rgb = vec![128u8; (width * height * 3) as usize];
+        let mut compressor = Compressor::new().expect("compressor");
+        let jpeg = encode_jpeg_rgb(&mut compressor, &rgb, width, height, 80).expect("encode");
+        assert!(jpeg.len() >= 2);
+        assert_eq!(jpeg[0], 0xFF);
+        assert_eq!(jpeg[1], 0xD8);
+    }
 }

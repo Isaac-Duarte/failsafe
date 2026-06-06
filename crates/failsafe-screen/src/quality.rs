@@ -33,17 +33,17 @@ impl ScreenQualityPreset {
             Self::Auto | Self::P720 => ScreenSettings {
                 max_width: 1280,
                 jpeg_quality: 60,
-                target_fps: 15,
+                target_fps: 20,
             },
             Self::P1080 => ScreenSettings {
                 max_width: 1920,
                 jpeg_quality: 75,
-                target_fps: 20,
+                target_fps: 24,
             },
             Self::P480 => ScreenSettings {
                 max_width: 854,
                 jpeg_quality: 50,
-                target_fps: 12,
+                target_fps: 15,
             },
             Self::P360 => ScreenSettings {
                 max_width: 640,
@@ -106,7 +106,7 @@ mod tests {
             ScreenSettings {
                 max_width: 1920,
                 jpeg_quality: 75,
-                target_fps: 20,
+                target_fps: 24,
             }
         );
         assert_eq!(
