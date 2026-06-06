@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use uuid::Uuid;
 
 mod transport;
 
 pub use transport::{
-    bind_control, connect_control, remove_stale_control_endpoint, ControlListener, ControlStream,
+    ControlListener, ControlStream, bind_control, connect_control, remove_stale_control_endpoint,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -127,10 +127,7 @@ where
     Ok(payload)
 }
 
-pub async fn send_request<S>(
-    stream: &mut S,
-    request: &ControlRequest,
-) -> Result<(), ControlError>
+pub async fn send_request<S>(stream: &mut S, request: &ControlRequest) -> Result<(), ControlError>
 where
     S: AsyncWrite + Unpin,
 {
@@ -187,9 +184,8 @@ where
     S: AsyncRead + Unpin,
 {
     let payload = read_message(stream).await?;
-    serde_json::from_slice(&payload).map_err(|error| {
-        ControlError::Config(format!("failed to decode control event: {error}"))
-    })
+    serde_json::from_slice(&payload)
+        .map_err(|error| ControlError::Config(format!("failed to decode control event: {error}")))
 }
 
 pub async fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {

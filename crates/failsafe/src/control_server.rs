@@ -5,29 +5,28 @@ use std::sync::Arc;
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::PortProtocol;
 use failsafe_core::control::{ControlEvent, SendPhase};
+use failsafe_core::control::{ControlListener, ControlStream, bind_control};
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    cancel_all_incomplete_receives, cancel_all_incomplete_sends, encode_envelope, eprint_send,
-    mark_send_complete, mark_send_failed, prepare_send_payload, send_ack_timeout, SendCoordinator,
-    SendEnvelope, SendProgressReporter,
+    SendCoordinator, SendEnvelope, SendProgressReporter, cancel_all_incomplete_receives,
+    cancel_all_incomplete_sends, encode_envelope, eprint_send, mark_send_complete,
+    mark_send_failed, prepare_send_payload, send_ack_timeout,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
-use failsafe_core::control::{bind_control, ControlListener, ControlStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::control::{
-    control_socket_path, recv_request, send_response, write_event, ControlRequest,
-    ControlResponse,
+    ControlRequest, ControlResponse, control_socket_path, recv_request, send_response, write_event,
 };
 use crate::error::DaemonError;
 use crate::shell_service::run_outgoing_shell;
@@ -123,8 +122,14 @@ impl ControlServer {
                 remote_port,
                 protocol,
             } => {
-                self.handle_open_port_forward(&mut stream, target, local_port, remote_port, protocol)
-                    .await;
+                self.handle_open_port_forward(
+                    &mut stream,
+                    target,
+                    local_port,
+                    remote_port,
+                    protocol,
+                )
+                .await;
             }
             ControlRequest::SendFiles {
                 target,
@@ -145,22 +150,14 @@ impl ControlServer {
         let sends = match cancel_all_incomplete_sends(self.coordinator.as_ref()).await {
             Ok(count) => count,
             Err(message) => {
-                let _ = send_response(
-                    stream,
-                    &ControlResponse::Error { message },
-                )
-                .await;
+                let _ = send_response(stream, &ControlResponse::Error { message }).await;
                 return;
             }
         };
         let receives = match cancel_all_incomplete_receives().await {
             Ok(count) => count,
             Err(message) => {
-                let _ = send_response(
-                    stream,
-                    &ControlResponse::Error { message },
-                )
-                .await;
+                let _ = send_response(stream, &ControlResponse::Error { message }).await;
                 return;
             }
         };
@@ -386,7 +383,7 @@ impl ControlServer {
             write_half
         });
 
-        let ack_rx = self.coordinator.register(transfer_id).await;
+        let (mut ack_rx, mut receive_progress_rx) = self.coordinator.register(transfer_id).await;
         info!(%transfer_id, %target, resume, "starting file send");
         eprint_send(format_args!(
             " starting send {transfer_id} -> {target} (resume={resume})"
@@ -457,35 +454,50 @@ impl ControlServer {
                     None,
                 )
                 .await;
-            drop(progress_tx);
 
             let ack_timeout = send_ack_timeout(total_bytes);
             info!(%transfer_id, %target, ?ack_timeout, "waiting for receiver acknowledgement");
             eprint_send(format_args!(
                 " waiting for ack transfer_id={transfer_id} target={target}"
             ));
-            tokio::select! {
-                _ = cancel.cancelled() => Err("transfer cancelled".to_owned()),
-                ack_result = tokio::time::timeout(ack_timeout, ack_rx) => match ack_result {
-                    Ok(Ok(Ok(()))) => {
-                        info!(%transfer_id, %target, "receiver acknowledged file transfer");
-                        eprint_send(format_args!(" ack received for {transfer_id}"));
-                        Ok(())
-                    }
-                    Ok(Ok(Err(message))) => {
-                        warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
-                        Err(message)
-                    }
-                    Ok(Err(_)) => {
-                        warn!(%transfer_id, %target, "acknowledgement channel closed before response");
-                        Err("transfer acknowledgement channel closed".to_owned())
-                    }
-                    Err(_) => {
+            let ack_deadline = tokio::time::sleep(ack_timeout);
+            tokio::pin!(ack_deadline);
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break Err("transfer cancelled".to_owned()),
+                    _ = &mut ack_deadline => {
                         warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
                         eprint_send(format_args!(" ack timeout for {transfer_id}"));
-                        Err("timed out waiting for receiver acknowledgement".to_owned())
+                        break Err("timed out waiting for receiver acknowledgement".to_owned());
                     }
-                },
+                    ack_result = &mut ack_rx => {
+                        break match ack_result {
+                            Ok(Ok(())) => {
+                                info!(%transfer_id, %target, "receiver acknowledged file transfer");
+                                eprint_send(format_args!(" ack received for {transfer_id}"));
+                                Ok(())
+                            }
+                            Ok(Err(message)) => {
+                                warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
+                                Err(message)
+                            }
+                            Err(_) => {
+                                warn!(%transfer_id, %target, "acknowledgement channel closed before response");
+                                Err("transfer acknowledgement channel closed".to_owned())
+                            }
+                        };
+                    }
+                    Some(receiver_progress) = receive_progress_rx.recv() => {
+                        progress
+                            .emit(
+                                receiver_progress.phase,
+                                receiver_progress.bytes_done,
+                                receiver_progress.bytes_total,
+                                receiver_progress.current_file,
+                            )
+                            .await;
+                    }
+                }
             }
         }
         .await;
@@ -497,26 +509,23 @@ impl ControlServer {
             }
         }
 
-        let mut write_half = progress_writer.await.unwrap_or_else(|_| {
-            panic!("progress writer task panicked")
-        });
+        progress.close();
+        drop(progress);
+        drop(progress_tx);
+
+        let mut write_half = progress_writer
+            .await
+            .unwrap_or_else(|_| panic!("progress writer task panicked"));
 
         match result {
             Ok(()) => {
                 let _ = mark_send_complete(transfer_id).await;
-                let _ = write_event(
-                    &mut write_half,
-                    &ControlEvent::SendComplete { transfer_id },
-                )
-                .await;
+                let _ =
+                    write_event(&mut write_half, &ControlEvent::SendComplete { transfer_id }).await;
             }
             Err(message) => {
                 let _ = mark_send_failed(transfer_id, message.clone()).await;
-                let _ = write_event(
-                    &mut write_half,
-                    &ControlEvent::SendFailed { message },
-                )
-                .await;
+                let _ = write_event(&mut write_half, &ControlEvent::SendFailed { message }).await;
             }
         }
 

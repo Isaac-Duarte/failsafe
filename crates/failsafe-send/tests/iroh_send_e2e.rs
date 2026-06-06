@@ -8,14 +8,14 @@ use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
+use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
 use failsafe_send::{
-    decode_envelope, encode_envelope, send_ack_timeout, FileEntry, SendCoordinator, SendEnvelope,
-    SendFeature, SendPayload, SEND_PAYLOAD_VERSION,
+    FileEntry, SEND_PAYLOAD_VERSION, SendCoordinator, SendEnvelope, SendFeature, SendPayload,
+    decode_envelope, encode_envelope, send_ack_timeout,
 };
 use failsafe_transport::iroh::{IrohConfig, IrohTransport};
 use failsafe_transport::transport::Transport;
-use failsafe_core::peer_address::PeerAddressBook;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -133,20 +133,28 @@ async fn iroh_send_receive_ack_roundtrip() {
         .expect("dispatch transfer");
 
     let mut ack_message = None;
+    let mut saw_progress = false;
     for _ in 0..120 {
         if let Ok(Some(message)) = sender_transport.try_recv().await {
-            ack_message = Some(message);
-            break;
+            assert_eq!(message.feature, FeatureId::FileSend);
+            let envelope = decode_envelope(&message.payload).expect("decode send envelope");
+            match envelope {
+                SendEnvelope::Progress(progress) => {
+                    assert_eq!(progress.transfer_id, transfer_id);
+                    assert!(progress.bytes_done <= progress.bytes_total);
+                    saw_progress = true;
+                }
+                SendEnvelope::Ack(failsafe_send::SendAck { ok: true, .. }) => {
+                    ack_message = Some(message);
+                    break;
+                }
+                other => panic!("unexpected send envelope: {other:?}"),
+            }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    let ack_message = ack_message.expect("timed out waiting for transfer acknowledgement");
-    assert_eq!(ack_message.feature, FeatureId::FileSend);
-    let envelope = decode_envelope(&ack_message.payload).expect("decode ack envelope");
-    assert!(matches!(
-        envelope,
-        SendEnvelope::Ack(failsafe_send::SendAck { ok: true, .. })
-    ));
+    let _ack_message = ack_message.expect("timed out waiting for transfer acknowledgement");
+    assert!(saw_progress);
 
     // Large transfers should get a proportionally longer acknowledgement window.
     assert!(send_ack_timeout(1024 * 1024 * 1024) > send_ack_timeout(0));

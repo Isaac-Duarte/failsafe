@@ -3,7 +3,6 @@ mod tests;
 
 pub mod auth;
 pub mod config;
-pub mod totp;
 pub mod entity;
 pub mod error;
 pub mod middleware;
@@ -13,6 +12,7 @@ pub mod presence;
 pub mod refresh_token;
 pub mod routes;
 pub mod state;
+pub mod totp;
 pub mod web;
 
 use std::path::PathBuf;

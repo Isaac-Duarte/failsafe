@@ -3,9 +3,7 @@ use crate::transfer_state::{
     list_incomplete_receives, list_incomplete_sends, remove_receive_state, remove_send_state,
 };
 
-pub async fn cancel_all_incomplete_sends(
-    coordinator: &SendCoordinator,
-) -> Result<usize, String> {
+pub async fn cancel_all_incomplete_sends(coordinator: &SendCoordinator) -> Result<usize, String> {
     let states = list_incomplete_sends().await?;
     let count = states.len();
     for state in states {

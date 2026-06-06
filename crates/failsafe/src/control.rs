@@ -1,12 +1,12 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-pub use failsafe_core::control::{
-    read_event, send_phase_label, write_event, ControlEvent, ControlRequest, ControlResponse,
-    SendPhase,
-};
 use failsafe_core::control::ControlError;
 use failsafe_core::control::ControlStream;
+pub use failsafe_core::control::{
+    ControlEvent, ControlRequest, ControlResponse, SendPhase, read_event, send_phase_label,
+    write_event,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -22,9 +22,7 @@ pub fn map_control_connect_error(error: ControlError) -> DaemonError {
             if io_error.kind() == io::ErrorKind::NotFound
                 || io_error.kind() == io::ErrorKind::ConnectionRefused =>
         {
-            DaemonError::Config(
-                "daemon is not running; start it with `failsafe run`".to_owned(),
-            )
+            DaemonError::Config("daemon is not running; start it with `failsafe run`".to_owned())
         }
         _ => DaemonError::Control(error),
     }

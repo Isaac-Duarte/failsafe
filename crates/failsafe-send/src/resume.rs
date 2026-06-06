@@ -10,7 +10,9 @@ use tracing::{info, warn};
 
 use crate::feature::SendFeature;
 use crate::log::eprint_send;
-use crate::transfer_state::{list_incomplete_receives, ReceiveStage, ReceiveTransferState};
+use crate::transfer_state::{
+    ReceiveStage, ReceiveTransferState, list_incomplete_receives, remove_receive_state,
+};
 
 pub async fn resume_incomplete_receives(
     blob_transfer: Arc<dyn BlobTransfer>,
@@ -56,6 +58,8 @@ pub async fn resume_incomplete_receives(
                     eprint_send(format_args!(
                         " resume ack failed for {transfer_id}: {error}"
                     ));
+                } else if let Err(error) = remove_receive_state(transfer_id).await {
+                    warn!(%transfer_id, %error, "failed to remove completed receive state");
                 }
             }
             Err(error) => {
@@ -82,7 +86,8 @@ pub fn spawn_receive_resume_watcher(
             let has_new_peer = connected.iter().any(|peer| !known_peers.contains(peer));
             known_peers = connected.into_iter().collect();
             if has_new_peer {
-                resume_incomplete_receives(blob_transfer.clone(), transport.clone(), &feature).await;
+                resume_incomplete_receives(blob_transfer.clone(), transport.clone(), &feature)
+                    .await;
             }
         }
     });

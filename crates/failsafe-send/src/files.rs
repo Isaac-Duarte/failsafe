@@ -93,8 +93,15 @@ pub async fn read_files_from_paths(
     let mut bytes_done = 0u64;
 
     for path in paths {
-        read_path_files(path, &mut files, limits, total_bytes, &mut bytes_done, &mut on_progress)
-            .await?;
+        read_path_files(
+            path,
+            &mut files,
+            limits,
+            total_bytes,
+            &mut bytes_done,
+            &mut on_progress,
+        )
+        .await?;
     }
 
     if files.is_empty() {

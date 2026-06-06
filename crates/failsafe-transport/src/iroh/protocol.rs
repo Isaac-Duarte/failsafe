@@ -10,9 +10,7 @@ use tracing::{debug, warn};
 
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
-use crate::iroh::stream::{
-    SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
-};
+use crate::iroh::stream::{SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]

@@ -3,13 +3,13 @@ use std::path::PathBuf;
 
 use failsafe::DaemonError;
 use failsafe_core::control::PortProtocol;
+use failsafe_core::control::connect_control;
 use inquire::Text;
 use tokio::io::AsyncReadExt;
-use failsafe_core::control::connect_control;
 
 use failsafe::control::{
-    ControlRequest, ControlResponse, control_socket_path, map_control_connect_error,
-    recv_response, send_request,
+    ControlRequest, ControlResponse, control_socket_path, map_control_connect_error, recv_response,
+    send_request,
 };
 
 use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};

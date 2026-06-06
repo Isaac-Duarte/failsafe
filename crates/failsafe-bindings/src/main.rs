@@ -32,7 +32,10 @@ fn main() {
         .register::<ApiError>()
         .register::<FeatureId>();
 
-    let output = concat!(env!("CARGO_MANIFEST_DIR"), "/../../failsafe-ui/src/lib/bindings.ts");
+    let output = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../failsafe-ui/src/lib/bindings.ts"
+    );
     Typescript::default()
         .export_to(output, &types, specta_serde::Format)
         .expect("failed to export TypeScript bindings");

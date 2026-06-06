@@ -35,7 +35,10 @@ pub struct PortSpec {
     pub remote_port: u16,
 }
 
-pub fn parse_port_spec(value: &str, remote_port_override: Option<u16>) -> Result<PortSpec, DaemonError> {
+pub fn parse_port_spec(
+    value: &str,
+    remote_port_override: Option<u16>,
+) -> Result<PortSpec, DaemonError> {
     let value = value.trim();
     if value.is_empty() {
         return Err(DaemonError::Config("port cannot be empty".to_owned()));

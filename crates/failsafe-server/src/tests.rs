@@ -1267,8 +1267,10 @@ async fn totp_setup_enable_and_login_requires_mfa() {
         .await
         .unwrap();
     assert_eq!(setup_response.status(), axum::http::StatusCode::OK);
-    let TotpSetupResponse { secret, otpauth_uri } =
-        body_json(setup_response.into_body()).await;
+    let TotpSetupResponse {
+        secret,
+        otpauth_uri,
+    } = body_json(setup_response.into_body()).await;
     assert!(otpauth_uri.contains("otpauth://"));
     assert!(!secret.is_empty());
 
@@ -1314,9 +1316,7 @@ async fn totp_setup_enable_and_login_requires_mfa() {
     let mfa_challenge: AuthResponse = body_json(login_response.into_body()).await;
     assert!(mfa_challenge.mfa_required);
     assert!(mfa_challenge.token.is_none());
-    let mfa_token = mfa_challenge
-        .mfa_token
-        .expect("expected mfa token");
+    let mfa_token = mfa_challenge.mfa_token.expect("expected mfa token");
 
     let mfa_code = crate::totp::current_totp_code(&email, &secret).unwrap();
     let mfa_login_response = app
@@ -1491,7 +1491,10 @@ async fn totp_disable_turns_off_mfa() {
         )
         .await
         .unwrap();
-    assert_eq!(disable_response.status(), axum::http::StatusCode::NO_CONTENT);
+    assert_eq!(
+        disable_response.status(),
+        axum::http::StatusCode::NO_CONTENT
+    );
 
     let login_response = app
         .oneshot(

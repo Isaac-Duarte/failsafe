@@ -3,27 +3,28 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use failsafe_clipboard::limits::ClipboardLimits;
+use failsafe_core::control::SendPhase;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::{Feature, FeatureError, FeatureId};
 use failsafe_core::message::FeatureMessage;
 use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::coordinator::SendCoordinator;
-use crate::log::eprint_send;
 use crate::inbound::receive_dir;
+use crate::log::eprint_send;
 use crate::notify::notify_files_received;
 use crate::payload::{
-    decode_envelope, encode_envelope, SendAck, SendEnvelope, SEND_PAYLOAD_VERSION,
+    SEND_PAYLOAD_VERSION, SendAck, SendEnvelope, SendProgress, decode_envelope, encode_envelope,
 };
-use crate::resume::spawn_receive_resume_watcher;
 use crate::resume::receive_state_from_payload;
+use crate::resume::spawn_receive_resume_watcher;
 use crate::transfer_state::{
-    load_receive_state, remove_receive_state, save_receive_state, ReceiveStage,
-    ReceiveTransferState,
+    ReceiveStage, ReceiveTransferState, load_receive_state, remove_receive_state,
+    save_receive_state,
 };
 
 pub struct SendFeature {
@@ -110,7 +111,12 @@ impl SendFeature {
         let _receive_guard = transfer_lock.lock().await;
         let result = self.handle_transfer_locked(from, payload).await;
         drop(_receive_guard);
-        self.receive_in_progress.lock().await.remove(&transfer_id);
+        let mut locks = self.receive_in_progress.lock().await;
+        if locks.get(&transfer_id).is_some_and(|entry| {
+            Arc::ptr_eq(entry, &transfer_lock) && Arc::strong_count(entry) == 2
+        }) {
+            locks.remove(&transfer_id);
+        }
         result
     }
 
@@ -161,16 +167,18 @@ impl SendFeature {
                 transfer_id = %payload.transfer_id,
                 "receive already complete, sending acknowledgement"
             );
-            return self
-                .send_ack(
-                    from,
-                    SendAck {
-                        transfer_id: payload.transfer_id,
-                        ok: true,
-                        error: None,
-                    },
-                )
+            self.send_ack(
+                from,
+                SendAck {
+                    transfer_id: payload.transfer_id,
+                    ok: true,
+                    error: None,
+                },
+            )
+            .await?;
+            self.remove_completed_receive_state(payload.transfer_id)
                 .await;
+            return Ok(());
         }
 
         state.sender = from;
@@ -222,6 +230,8 @@ impl SendFeature {
             },
         )
         .await?;
+        self.remove_completed_receive_state(payload.transfer_id)
+            .await;
 
         Ok(())
     }
@@ -248,19 +258,65 @@ impl SendFeature {
         );
 
         let root = BlobHash::from(state.collection_hash.as_str());
+        let (progress_tx, mut progress_rx) = mpsc::channel::<SendProgress>(256);
+        let progress_transport = self.transport.clone();
+        let progress_sender = state.sender;
+        let progress_task = tokio::spawn(async move {
+            while let Some(progress) = progress_rx.recv().await {
+                let transfer_id = progress.transfer_id;
+                let local_id = progress_transport.local_device_id();
+                let envelope = SendEnvelope::Progress(progress);
+                let message = FeatureMessage::new(
+                    local_id,
+                    progress_sender,
+                    FeatureId::FileSend,
+                    encode_envelope(&envelope),
+                );
+                if let Err(error) = progress_transport.send(message).await {
+                    warn!(
+                        %transfer_id,
+                        to = %progress_sender,
+                        %error,
+                        "failed to send file receive progress"
+                    );
+                    break;
+                }
+            }
+        });
+
+        let transfer_id = state.transfer_id;
+        let emit_progress =
+            |phase: SendPhase, bytes_done: u64, bytes_total: u64, current_file: Option<String>| {
+                let _ = progress_tx.try_send(SendProgress {
+                    transfer_id,
+                    phase,
+                    bytes_done,
+                    bytes_total,
+                    current_file,
+                });
+            };
+        emit_progress(
+            SendPhase::WaitingForAck,
+            state.bytes_done,
+            state.bytes_total,
+            None,
+        );
+
         blob_transfer
-            .download_collection(
-                state.sender,
-                &root,
-                state.bytes_total,
-                &mut |progress| {
-                    state.bytes_done = progress.bytes_done;
-                },
-            )
+            .download_collection(state.sender, &root, state.bytes_total, &mut |progress| {
+                state.bytes_done = progress.bytes_done;
+                emit_progress(
+                    SendPhase::WaitingForAck,
+                    progress.bytes_done,
+                    progress.bytes_total,
+                    progress.current_file,
+                );
+            })
             .await
             .map_err(|error| error.to_string())?;
 
         state.stage = ReceiveStage::Exporting;
+        state.bytes_done = state.bytes_total;
         save_receive_state(state).await?;
         info!(transfer_id = %state.transfer_id, "exporting received files");
 
@@ -273,15 +329,25 @@ impl SendFeature {
 
         let paths = blob_transfer
             .export_collection(&root, &receive_dir, &mut |progress| {
-                state.bytes_done = progress.bytes_done;
+                emit_progress(
+                    SendPhase::Storing,
+                    state.bytes_total,
+                    state.bytes_total,
+                    progress.current_file,
+                );
             })
             .await
             .map_err(|error| error.to_string())?;
+        emit_progress(
+            SendPhase::Storing,
+            state.bytes_total,
+            state.bytes_total,
+            None,
+        );
 
         state.stage = ReceiveStage::Complete;
         state.bytes_done = state.bytes_total;
         save_receive_state(state).await?;
-        remove_receive_state(state.transfer_id).await?;
 
         notify_files_received(&state.sender_name, paths.len(), &receive_dir);
 
@@ -291,6 +357,9 @@ impl SendFeature {
             count = paths.len(),
             "received file send"
         );
+
+        drop(progress_tx);
+        let _ = progress_task.await;
 
         Ok(())
     }
@@ -317,7 +386,12 @@ impl SendFeature {
 
         let local_id = self.transport.local_device_id();
         let envelope = SendEnvelope::Ack(ack);
-        let message = FeatureMessage::new(local_id, to, FeatureId::FileSend, encode_envelope(&envelope));
+        let message = FeatureMessage::new(
+            local_id,
+            to,
+            FeatureId::FileSend,
+            encode_envelope(&envelope),
+        );
         match self.transport.send(message).await {
             Ok(()) => {
                 info!(%transfer_id, %to, ok, "file transfer acknowledgement sent");
@@ -333,6 +407,16 @@ impl SendFeature {
                 ));
                 Err(transport_error_to_feature_error(error))
             }
+        }
+    }
+
+    async fn remove_completed_receive_state(&self, transfer_id: Uuid) {
+        if let Err(error) = remove_receive_state(transfer_id).await {
+            warn!(
+                %transfer_id,
+                %error,
+                "failed to remove completed receive state"
+            );
         }
     }
 }
@@ -356,11 +440,7 @@ impl Feature for SendFeature {
             )
             .await;
         });
-        spawn_receive_resume_watcher(
-            self.blob_transfer.clone(),
-            self.transport.clone(),
-            feature,
-        );
+        spawn_receive_resume_watcher(self.blob_transfer.clone(), self.transport.clone(), feature);
         Ok(())
     }
 
@@ -393,6 +473,10 @@ impl Feature for SendFeature {
                 Ok(())
             }
             SendEnvelope::Ack(ack) => self.handle_ack(ack).await,
+            SendEnvelope::Progress(progress) => {
+                self.coordinator.report_progress(progress).await;
+                Ok(())
+            }
         }
     }
 }
@@ -412,7 +496,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::payload::{FileEntry, SendPayload, SEND_PAYLOAD_VERSION};
+    use crate::payload::{FileEntry, SEND_PAYLOAD_VERSION, SendPayload};
 
     #[tokio::test]
     async fn receives_transfer_and_sends_ack() {
@@ -445,6 +529,7 @@ mod tests {
                 size: 5,
             }],
         };
+        let transfer_id = payload.transfer_id;
 
         feature
             .handle_message(FeatureMessage::new(
@@ -456,12 +541,22 @@ mod tests {
             .await
             .unwrap();
 
+        let mut saw_progress = false;
         for _ in 0..50 {
             if let Ok(Some(ack_message)) = local_transport.try_recv().await {
                 assert_eq!(ack_message.feature, FeatureId::FileSend);
-                let ack = decode_envelope(&ack_message.payload).unwrap();
-                assert!(matches!(ack, SendEnvelope::Ack(SendAck { ok: true, .. })));
-                return;
+                match decode_envelope(&ack_message.payload).unwrap() {
+                    SendEnvelope::Progress(progress) => {
+                        assert_eq!(progress.transfer_id, transfer_id);
+                        assert!(progress.bytes_done <= progress.bytes_total);
+                        saw_progress = true;
+                    }
+                    SendEnvelope::Ack(SendAck { ok: true, .. }) => {
+                        assert!(saw_progress);
+                        return;
+                    }
+                    other => panic!("unexpected envelope: {other:?}"),
+                }
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }

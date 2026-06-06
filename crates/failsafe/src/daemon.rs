@@ -5,15 +5,15 @@ use std::time::Duration;
 
 use failsafe_clipboard::feature::ClipboardFeature;
 use failsafe_clipboard::limits::ClipboardLimits;
-use failsafe_send::{parse_ack, SendCoordinator, SendFeature};
-use failsafe_transport::blobs::MockBlobTransfer;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
+use failsafe_send::{SendCoordinator, SendFeature, parse_ack};
 use failsafe_transport::blobs::BlobTransfer;
+use failsafe_transport::blobs::MockBlobTransfer;
 use failsafe_transport::iroh::{PortSession, ShellSession};
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
@@ -24,10 +24,10 @@ use tracing::info;
 use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
-use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
 use crate::server::ServerClient;
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
+use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
 
 pub struct TransportBundle {
     pub transport: Arc<dyn Transport>,
@@ -385,7 +385,8 @@ impl Daemon {
         let mut sync_interval = tokio::time::interval(Duration::from_secs(30));
         sync_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        let (inbound_tx, mut inbound_rx) = mpsc::channel::<failsafe_core::message::FeatureMessage>(256);
+        let (inbound_tx, mut inbound_rx) =
+            mpsc::channel::<failsafe_core::message::FeatureMessage>(256);
         let transport_reader = self.transport.clone();
         tokio::spawn(async move {
             loop {

@@ -30,9 +30,9 @@ pub async fn authenticate(
                 .to_owned(),
         )
     })?;
-    let refresh_token = response.refresh_token.ok_or_else(|| {
-        DaemonError::Config("server response missing refresh token".to_owned())
-    })?;
+    let refresh_token = response
+        .refresh_token
+        .ok_or_else(|| DaemonError::Config("server response missing refresh token".to_owned()))?;
 
     let credentials = Credentials {
         auth_token: token,

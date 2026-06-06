@@ -240,9 +240,9 @@ impl ServerClient {
             DaemonError::Config(format!("failed to decode refresh response: {error}"))
         })?;
 
-        let token = body.token.ok_or_else(|| {
-            DaemonError::Config("refresh response missing token".to_owned())
-        })?;
+        let token = body
+            .token
+            .ok_or_else(|| DaemonError::Config("refresh response missing token".to_owned()))?;
         let refresh_token = body.refresh_token.ok_or_else(|| {
             DaemonError::Config("refresh response missing refresh_token".to_owned())
         })?;

@@ -4,17 +4,15 @@ use std::time::Duration;
 
 use failsafe::DaemonError;
 use failsafe_core::control::connect_control;
-use failsafe_core::control::{send_phase_label, ControlEvent, SendPhase};
-use failsafe_send::{
-    collect_file_preview, format_bytes, list_incomplete_sends, load_send_state,
-};
+use failsafe_core::control::{ControlEvent, SendPhase, send_phase_label};
+use failsafe_send::{collect_file_preview, format_bytes, list_incomplete_sends, load_send_state};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Confirm;
 use uuid::Uuid;
 
 use failsafe::control::{
-    control_socket_path, map_control_connect_error, read_event, recv_response, send_request,
-    ControlRequest, ControlResponse,
+    ControlRequest, ControlResponse, control_socket_path, map_control_connect_error, read_event,
+    recv_response, send_request,
 };
 
 use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};
@@ -87,7 +85,11 @@ pub async fn send(
     for preview in &previews {
         println!("  {} ({})", preview.name, format_bytes(preview.size));
     }
-    println!("Total: {} ({} files)", format_bytes(total_bytes), previews.len());
+    println!(
+        "Total: {} ({} files)",
+        format_bytes(total_bytes),
+        previews.len()
+    );
 
     if !yes {
         if !io::stdin().is_terminal() {
@@ -152,7 +154,9 @@ pub async fn send(
     let mut transfer_total_bytes = total_bytes;
 
     loop {
-        let event = read_event(&mut stream).await.map_err(DaemonError::Control)?;
+        let event = read_event(&mut stream)
+            .await
+            .map_err(DaemonError::Control)?;
         match event {
             ControlEvent::SendProgress {
                 sequence,
@@ -171,8 +175,12 @@ pub async fn send(
                     SendPhase::WaitingForAck => {
                         transfer_total_bytes = bytes_total.max(transfer_total_bytes);
                         progress.set_length(transfer_total_bytes.max(1));
-                        progress.set_position(transfer_total_bytes);
-                        progress.enable_steady_tick(Duration::from_millis(100));
+                        progress.set_position(bytes_done.min(transfer_total_bytes));
+                        if bytes_total == 0 || bytes_done >= bytes_total {
+                            progress.enable_steady_tick(Duration::from_millis(100));
+                        } else {
+                            progress.disable_steady_tick();
+                        }
                     }
                     _ => {
                         progress.disable_steady_tick();
@@ -238,7 +246,9 @@ async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
             if sends == 0 && receives == 0 {
                 println!("No incomplete transfers.");
             } else {
-                println!("Cancelled {sends} incomplete send(s) and {receives} incomplete receive(s).");
+                println!(
+                    "Cancelled {sends} incomplete send(s) and {receives} incomplete receive(s)."
+                );
             }
             Ok(())
         }
@@ -250,9 +260,7 @@ async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
 }
 
 async fn list_incomplete() -> Result<(), DaemonError> {
-    let transfers = list_incomplete_sends()
-        .await
-        .map_err(DaemonError::Config)?;
+    let transfers = list_incomplete_sends().await.map_err(DaemonError::Config)?;
     if transfers.is_empty() {
         println!("No incomplete sends.");
         return Ok(());
@@ -268,7 +276,10 @@ async fn list_incomplete() -> Result<(), DaemonError> {
             format_bytes(transfer.bytes_total),
             transfer.stage
         );
-        println!("    resume: failsafe send --resume {}", transfer.transfer_id);
+        println!(
+            "    resume: failsafe send --resume {}",
+            transfer.transfer_id
+        );
     }
     Ok(())
 }

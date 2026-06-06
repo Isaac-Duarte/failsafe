@@ -1,3 +1,4 @@
+use failsafe_core::control::SendPhase;
 use failsafe_core::feature::{FeatureError, FeatureId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -28,10 +29,21 @@ pub struct SendAck {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendProgress {
+    pub transfer_id: Uuid,
+    pub phase: SendPhase,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SendEnvelope {
     Transfer(SendPayload),
     Ack(SendAck),
+    Progress(SendProgress),
 }
 
 pub fn encode_envelope(envelope: &SendEnvelope) -> Vec<u8> {
@@ -42,7 +54,7 @@ pub fn parse_ack(payload: &[u8]) -> Option<SendAck> {
     let envelope = serde_json::from_slice::<SendEnvelope>(payload).ok()?;
     match envelope {
         SendEnvelope::Ack(ack) => Some(ack),
-        SendEnvelope::Transfer(_) => None,
+        SendEnvelope::Transfer(_) | SendEnvelope::Progress(_) => None,
     }
 }
 
@@ -81,6 +93,19 @@ mod tests {
             transfer_id: Uuid::new_v4(),
             ok: true,
             error: None,
+        });
+        let decoded = decode_envelope(&encode_envelope(&envelope)).unwrap();
+        assert_eq!(decoded, envelope);
+    }
+
+    #[test]
+    fn roundtrips_progress_envelope() {
+        let envelope = SendEnvelope::Progress(SendProgress {
+            transfer_id: Uuid::new_v4(),
+            phase: SendPhase::WaitingForAck,
+            bytes_done: 7,
+            bytes_total: 42,
+            current_file: Some("doc.txt".to_owned()),
         });
         let decoded = decode_envelope(&encode_envelope(&envelope)).unwrap();
         assert_eq!(decoded, envelope);

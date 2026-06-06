@@ -14,7 +14,10 @@ pub fn receive_dir(sender_name: &str, transfer_id: Uuid) -> Option<PathBuf> {
     let safe_sender = sanitize_path_component(sender_name);
     let timestamp = Local::now().format("%Y%m%d-%H%M%S");
     let short_id = &transfer_id.to_string()[..8];
-    Some(base.join(safe_sender).join(format!("{timestamp}-{short_id}")))
+    Some(
+        base.join(safe_sender)
+            .join(format!("{timestamp}-{short_id}")),
+    )
 }
 
 pub async fn save_received_files(
@@ -47,7 +50,13 @@ fn sanitize_path_component(value: &str) -> String {
     }
     trimmed
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

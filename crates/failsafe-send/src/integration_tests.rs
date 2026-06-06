@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::feature::FeatureId;
-use failsafe_transport::blobs::BlobTransfer;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::registry::FeatureRegistry;
+use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::blobs::MockBlobTransfer;
 use failsafe_transport::mock::MockTransport;
 use failsafe_transport::transport::Transport;
@@ -13,9 +13,7 @@ use uuid::Uuid;
 
 use crate::coordinator::SendCoordinator;
 use crate::feature::SendFeature;
-use crate::payload::{
-    encode_envelope, FileEntry, SendEnvelope, SendPayload, SEND_PAYLOAD_VERSION,
-};
+use crate::payload::{FileEntry, SEND_PAYLOAD_VERSION, SendEnvelope, SendPayload, encode_envelope};
 
 #[tokio::test]
 async fn send_receive_ack_roundtrip() {
@@ -81,11 +79,26 @@ async fn send_receive_ack_roundtrip() {
         .expect("receive transfer");
     receiver_registry.dispatch(inbound).await.expect("dispatch");
 
-    let ack = sender_transport.as_ref().recv().await.expect("receive ack");
-    assert_eq!(ack.feature, FeatureId::FileSend);
-    let envelope = crate::payload::decode_envelope(&ack.payload).expect("decode ack");
-    assert!(matches!(
-        envelope,
-        SendEnvelope::Ack(crate::payload::SendAck { ok: true, .. })
-    ));
+    let mut saw_progress = false;
+    for _ in 0..50 {
+        let message = sender_transport
+            .as_ref()
+            .recv()
+            .await
+            .expect("receive send event");
+        assert_eq!(message.feature, FeatureId::FileSend);
+        match crate::payload::decode_envelope(&message.payload).expect("decode send envelope") {
+            SendEnvelope::Progress(progress) => {
+                assert_eq!(progress.transfer_id, transfer_id);
+                assert!(progress.bytes_done <= progress.bytes_total);
+                saw_progress = true;
+            }
+            SendEnvelope::Ack(crate::payload::SendAck { ok: true, .. }) => {
+                assert!(saw_progress);
+                return;
+            }
+            other => panic!("unexpected send envelope: {other:?}"),
+        }
+    }
+    panic!("timed out waiting for transfer acknowledgement");
 }

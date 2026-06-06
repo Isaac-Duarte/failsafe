@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 
 use async_trait::async_trait;
@@ -11,9 +11,11 @@ use bytes::Bytes;
 use failsafe_core::device::DeviceId;
 use iroh::Endpoint;
 use iroh::EndpointId;
-use iroh_blobs::api::blobs::{AddPathOptions, AddProgressItem, ExportMode, ExportOptions, ExportProgressItem, ImportMode};
-use iroh_blobs::api::downloader::{DownloadProgressItem, Shuffled};
 use iroh_blobs::api::Store;
+use iroh_blobs::api::blobs::{
+    AddPathOptions, AddProgressItem, ExportMode, ExportOptions, ExportProgressItem, ImportMode,
+};
+use iroh_blobs::api::downloader::{DownloadProgressItem, Shuffled};
 use iroh_blobs::format::collection::Collection;
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{BlobFormat, Hash, HashAndFormat};
@@ -249,7 +251,9 @@ impl BlobTransfer for IrohBlobTransfer {
         while join_set.join_next().await.is_some() {}
 
         if completed != sources.len() {
-            return Err(BlobError::Store("import ended before all files completed".to_owned()));
+            return Err(BlobError::Store(
+                "import ended before all files completed".to_owned(),
+            ));
         }
 
         progress(BlobProgress {
@@ -439,11 +443,7 @@ impl BlobTransfer for IrohBlobTransfer {
             .local(HashAndFormat::hash_seq(root_hash))
             .await
             .map_err(|error| BlobError::Store(error.to_string()))?;
-        Ok((
-            local.local_bytes(),
-            total_bytes,
-            local.is_complete(),
-        ))
+        Ok((local.local_bytes(), total_bytes, local.is_complete()))
     }
 }
 

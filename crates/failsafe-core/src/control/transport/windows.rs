@@ -37,10 +37,7 @@ pub async fn bind_control(path: &Path) -> Result<ControlListener, ControlError> 
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await
         .map_err(ControlError::Io)?;
-    let port = listener
-        .local_addr()
-        .map_err(ControlError::Io)?
-        .port();
+    let port = listener.local_addr().map_err(ControlError::Io)?.port();
     tokio::fs::write(path, port.to_string())
         .await
         .map_err(ControlError::Io)?;

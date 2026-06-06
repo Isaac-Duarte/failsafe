@@ -1,10 +1,11 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use failsafe_core::control::{ControlEvent, SendPhase};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{Notify, mpsc};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 struct ProgressSnapshot {
@@ -20,6 +21,7 @@ pub struct SendProgressReporter {
     sequence: Arc<AtomicU64>,
     pending: Arc<Mutex<Option<ProgressSnapshot>>>,
     notify: Arc<Notify>,
+    cancel: CancellationToken,
 }
 
 impl SendProgressReporter {
@@ -27,16 +29,24 @@ impl SendProgressReporter {
         let sequence = Arc::new(AtomicU64::new(0));
         let pending = Arc::new(Mutex::new(None));
         let notify = Arc::new(Notify::new());
+        let cancel = CancellationToken::new();
 
         let flush_tx = tx.clone();
         let flush_sequence = sequence.clone();
         let flush_pending = pending.clone();
         let flush_notify = notify.clone();
+        let flush_cancel = cancel.clone();
 
         tokio::spawn(async move {
             loop {
-                flush_notify.notified().await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::select! {
+                    _ = flush_cancel.cancelled() => break,
+                    _ = flush_notify.notified() => {}
+                }
+                tokio::select! {
+                    _ = flush_cancel.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                }
 
                 let snapshot: Option<ProgressSnapshot> = flush_pending.lock().unwrap().take();
                 let Some(snapshot) = snapshot else {
@@ -61,6 +71,7 @@ impl SendProgressReporter {
             sequence,
             pending,
             notify,
+            cancel,
         }
     }
 
@@ -99,5 +110,31 @@ impl SendProgressReporter {
                 current_file,
             })
             .await;
+    }
+
+    pub fn close(&self) {
+        *self.pending.lock().unwrap() = None;
+        self.cancel.cancel();
+        self.notify.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn close_releases_flush_sender() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let reporter = SendProgressReporter::new(tx);
+
+        reporter.try_emit(SendPhase::Preparing, 1, 2, None);
+        reporter.close();
+        drop(reporter);
+
+        let closed = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("progress channel should close promptly");
+        assert!(closed.is_none());
     }
 }

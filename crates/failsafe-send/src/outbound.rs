@@ -8,8 +8,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::files::{collect_file_preview, collect_import_sources};
-use crate::payload::{FileEntry, SendPayload, SEND_PAYLOAD_VERSION};
-use crate::transfer_state::{save_send_state, SendStage, SendTransferState};
+use crate::payload::{FileEntry, SEND_PAYLOAD_VERSION, SendPayload};
+use crate::transfer_state::{SendStage, SendTransferState, save_send_state};
 
 pub async fn prepare_send_payload(
     paths: &[PathBuf],
@@ -95,9 +95,8 @@ pub async fn prepare_send_payload(
                     blob_progress.current_file,
                 );
             };
-            let mut import_future = Box::pin(
-                blob_transfer.import_sources(&sources, &mut on_import_progress),
-            );
+            let mut import_future =
+                Box::pin(blob_transfer.import_sources(&sources, &mut on_import_progress));
             tokio::select! {
                 _ = cancel.cancelled() => return Err("transfer cancelled".to_owned()),
                 result = import_future.as_mut() => result.map_err(|error| error.to_string())?,

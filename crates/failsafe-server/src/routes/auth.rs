@@ -4,8 +4,8 @@ use crate::error::{ServerError, ServerResult};
 use crate::refresh_token::{self, issue_auth_response};
 use crate::state::AppState;
 use crate::totp::{
-    build_otpauth_uri, decrypt_secret, encrypt_secret, generate_recovery_codes, generate_totp_secret,
-    hash_recovery_code, verify_totp,
+    build_otpauth_uri, decrypt_secret, encrypt_secret, generate_recovery_codes,
+    generate_totp_secret, hash_recovery_code, verify_totp,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -17,9 +17,7 @@ use failsafe_core::api::{
     AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest,
     TotpDisableRequest, TotpEnableRequest, TotpEnableResponse, TotpSetupResponse,
 };
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {

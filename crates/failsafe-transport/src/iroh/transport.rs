@@ -22,8 +22,7 @@ use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
 use crate::iroh::stream::{
-    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor,
-    ShellSession,
+    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession,
 };
 use crate::peer_updater::PeerAddressUpdater;
 use crate::port;

@@ -1,4 +1,3 @@
-
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rand::RngCore;
@@ -54,9 +53,9 @@ pub fn encrypt_secret(encryption_key: &str, plaintext: &str) -> ServerResult<Str
 }
 
 pub fn decrypt_secret(encryption_key: &str, stored: &str) -> ServerResult<String> {
-    let (nonce_b64, ciphertext_b64) = stored
-        .split_once(':')
-        .ok_or(ServerError::Internal("invalid encrypted secret format".to_owned()))?;
+    let (nonce_b64, ciphertext_b64) = stored.split_once(':').ok_or(ServerError::Internal(
+        "invalid encrypted secret format".to_owned(),
+    ))?;
     let nonce_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, nonce_b64)
         .map_err(|_| ServerError::Internal("invalid encrypted secret nonce".to_owned()))?;
     let ciphertext =

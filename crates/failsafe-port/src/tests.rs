@@ -260,13 +260,8 @@ async fn forwards_local_tcp_connections_to_remote_port() {
     };
 
     let socket_path = temp.path().join("port-control.sock");
-    let control_stream = open_port_forward_client(
-        &socket_path,
-        device_b,
-        local_forward_port,
-        echo_port,
-    )
-    .await;
+    let control_stream =
+        open_port_forward_client(&socket_path, device_b, local_forward_port, echo_port).await;
 
     let send_through_forward = async {
         let mut client = TcpStream::connect(("127.0.0.1", local_forward_port))
