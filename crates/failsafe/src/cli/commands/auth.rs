@@ -24,9 +24,19 @@ pub async fn authenticate(
     let credentials_path = Credentials::default_path().ok_or_else(|| {
         DaemonError::Config("could not determine credentials path for this platform".to_owned())
     })?;
+    let token = response.token.ok_or_else(|| {
+        DaemonError::Config(
+            "server requires two-factor authentication; use the web UI or pass --totp when supported"
+                .to_owned(),
+        )
+    })?;
+    let refresh_token = response.refresh_token.ok_or_else(|| {
+        DaemonError::Config("server response missing refresh token".to_owned())
+    })?;
+
     let credentials = Credentials {
-        auth_token: response.token,
-        refresh_token: Some(response.refresh_token),
+        auth_token: token,
+        refresh_token: Some(refresh_token),
     };
     credentials.save(&credentials_path)?;
 

@@ -39,10 +39,11 @@ export function PasswordInput({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
+        className="absolute top-1/2 right-1 z-10 -translate-y-1/2 text-muted-foreground"
         onClick={() => setVisible((current) => !current)}
         disabled={disabled}
         aria-label={visible ? "Hide password" : "Show password"}
+        aria-pressed={visible}
       >
         {visible ? <EyeOff /> : <Eye />}
       </Button>

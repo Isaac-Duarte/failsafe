@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         db,
         jwt: JwtService::new(&jwt_secret),
+        encryption_key: jwt_secret.clone(),
     };
     let app = failsafe_server::build_app(state);
 

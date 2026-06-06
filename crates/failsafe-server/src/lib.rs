@@ -3,6 +3,7 @@ mod tests;
 
 pub mod auth;
 pub mod config;
+pub mod totp;
 pub mod entity;
 pub mod error;
 pub mod middleware;
@@ -87,6 +88,7 @@ pub async fn app_from_parts(
     let state = AppState {
         db,
         jwt: JwtService::new(jwt_secret),
+        encryption_key: jwt_secret.to_owned(),
     };
     Ok(build_app(state))
 }

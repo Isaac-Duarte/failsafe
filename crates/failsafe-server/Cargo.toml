@@ -31,6 +31,9 @@ dotenvy.workspace = true
 async-trait = "0.1"
 rand = { version = "0.8", features = ["std_rng"] }
 sha2 = "0.10"
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+aes-gcm = "0.10"
+base64 = "0.22"
 rust-embed = "8"
 mime_guess = "2"
 

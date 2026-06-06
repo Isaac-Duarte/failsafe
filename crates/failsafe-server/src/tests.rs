@@ -1,9 +1,11 @@
 use axum::body::Body;
 use chrono::{Duration, Utc};
 use failsafe_core::api::{
-    AccountId, AccountResponse, AuthLoginRequest, AuthLogoutRequest, AuthRefreshRequest,
-    AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse, DevicePatchRequest,
-    DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
+    AccountId, AccountResponse, AuthLoginRequest, AuthLogoutRequest, AuthMfaLoginRequest,
+    AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest, DeviceInfo,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
+    PairingRedeemRequest, TotpDisableRequest, TotpEnableRequest, TotpEnableResponse,
+    TotpSetupResponse,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -21,6 +23,16 @@ async fn body_json<T: serde::de::DeserializeOwned>(body: Body) -> T {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+fn auth_token(auth: &AuthResponse) -> &str {
+    auth.token.as_deref().expect("expected auth token")
+}
+
+fn refresh_token_value(auth: &AuthResponse) -> &str {
+    auth.refresh_token
+        .as_deref()
+        .expect("expected refresh token")
+}
+
 async fn test_app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = connect_and_migrate("sqlite::memory:")
         .await
@@ -28,6 +40,7 @@ async fn test_app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
     let state = AppState {
         db: db.clone(),
         jwt: JwtService::new("integration-test-secret"),
+        encryption_key: "integration-test-secret".to_owned(),
     };
     (build_app(state), db)
 }
@@ -76,7 +89,7 @@ async fn auth_me_returns_account_email() {
                 .body(Body::from(
                     serde_json::to_string(&AuthRegisterRequest {
                         email: "me@example.com".to_owned(),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -86,7 +99,8 @@ async fn auth_me_returns_account_email() {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    let token = auth_token(&auth);
 
     let me_response = app
         .clone()
@@ -102,8 +116,12 @@ async fn auth_me_returns_account_email() {
         .unwrap();
 
     assert_eq!(me_response.status(), axum::http::StatusCode::OK);
-    let AccountResponse { email } = body_json(me_response.into_body()).await;
+    let AccountResponse {
+        email,
+        totp_enabled,
+    } = body_json(me_response.into_body()).await;
     assert_eq!(email, "me@example.com");
+    assert!(!totp_enabled);
 }
 
 #[tokio::test]
@@ -120,7 +138,7 @@ async fn register_login_and_manage_devices() {
                 .body(Body::from(
                     serde_json::to_string(&AuthRegisterRequest {
                         email: "user@example.com".to_owned(),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -130,7 +148,8 @@ async fn register_login_and_manage_devices() {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    let token = auth_token(&auth);
 
     let login_response = app
         .clone()
@@ -142,7 +161,7 @@ async fn register_login_and_manage_devices() {
                 .body(Body::from(
                     serde_json::to_string(&AuthLoginRequest {
                         email: "user@example.com".to_owned(),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -152,10 +171,8 @@ async fn register_login_and_manage_devices() {
         .unwrap();
 
     assert_eq!(login_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse {
-        token: login_token, ..
-    } = body_json(login_response.into_body()).await;
-    assert!(!login_token.is_empty());
+    let login_auth: AuthResponse = body_json(login_response.into_body()).await;
+    assert!(!auth_token(&login_auth).is_empty());
     assert!(!token.is_empty());
 
     let device_id = DeviceId::new();
@@ -216,7 +233,7 @@ async fn pairing_code_can_be_redeemed_once() {
                 .body(Body::from(
                     serde_json::to_string(&AuthRegisterRequest {
                         email: "pair@example.com".to_owned(),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -225,7 +242,8 @@ async fn pairing_code_can_be_redeemed_once() {
         .await
         .unwrap();
 
-    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    let token = auth_token(&auth);
 
     let create_response = app
         .clone()
@@ -270,10 +288,8 @@ async fn pairing_code_can_be_redeemed_once() {
         .unwrap();
 
     assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse {
-        token: redeemed_token,
-        ..
-    } = body_json(redeem_response.into_body()).await;
+    let redeem_auth: AuthResponse = body_json(redeem_response.into_body()).await;
+    let redeemed_token = auth_token(&redeem_auth);
     assert!(!redeemed_token.is_empty());
 
     let list_response = app
@@ -322,7 +338,7 @@ async fn register_and_get_token(app: &axum::Router) -> String {
                 .body(Body::from(
                     serde_json::to_string(&AuthRegisterRequest {
                         email: format!("user-{}@example.com", uuid::Uuid::new_v4()),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -332,8 +348,8 @@ async fn register_and_get_token(app: &axum::Router) -> String {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
-    token
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    auth_token(&auth).to_owned()
 }
 
 #[tokio::test]
@@ -544,10 +560,8 @@ async fn deleted_device_can_rejoin_via_pairing_redeem() {
         .unwrap();
 
     assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse {
-        token: redeemed_token,
-        ..
-    } = body_json(redeem_response.into_body()).await;
+    let redeem_auth: AuthResponse = body_json(redeem_response.into_body()).await;
+    let redeemed_token = auth_token(&redeem_auth);
 
     let model = Device::find_by_id(device_id.0)
         .one(&db)
@@ -1020,7 +1034,7 @@ async fn login_and_get_tokens(app: &axum::Router) -> AuthResponse {
                 .body(Body::from(
                     serde_json::to_string(&AuthRegisterRequest {
                         email: email.clone(),
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -1039,7 +1053,7 @@ async fn login_and_get_tokens(app: &axum::Router) -> AuthResponse {
                 .body(Body::from(
                     serde_json::to_string(&AuthLoginRequest {
                         email,
-                        password: "hunter2".to_owned(),
+                        password: "hunter22".to_owned(),
                     })
                     .unwrap(),
                 ))
@@ -1050,18 +1064,16 @@ async fn login_and_get_tokens(app: &axum::Router) -> AuthResponse {
 
     assert_eq!(login_response.status(), axum::http::StatusCode::OK);
     let auth = body_json::<AuthResponse>(login_response.into_body()).await;
-    assert!(!auth.token.is_empty());
-    assert!(!auth.refresh_token.is_empty());
+    assert!(!auth_token(&auth).is_empty());
+    assert!(!refresh_token_value(&auth).is_empty());
     auth
 }
 
 #[tokio::test]
 async fn refresh_rotates_tokens() {
     let app = test_app().await;
-    let AuthResponse {
-        token: _,
-        refresh_token,
-    } = login_and_get_tokens(&app).await;
+    let auth = login_and_get_tokens(&app).await;
+    let refresh_token = refresh_token_value(&auth).to_owned();
 
     let refresh_response = app
         .clone()
@@ -1082,10 +1094,9 @@ async fn refresh_rotates_tokens() {
         .unwrap();
 
     assert_eq!(refresh_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse {
-        token: new_token,
-        refresh_token: new_refresh_token,
-    } = body_json(refresh_response.into_body()).await;
+    let refreshed: AuthResponse = body_json(refresh_response.into_body()).await;
+    let new_token = auth_token(&refreshed);
+    let new_refresh_token = refresh_token_value(&refreshed);
     assert!(!new_token.is_empty());
     assert!(!new_refresh_token.is_empty());
     assert_ne!(refresh_token, new_refresh_token);
@@ -1129,7 +1140,8 @@ async fn refresh_rotates_tokens() {
 #[tokio::test]
 async fn logout_revokes_refresh_token() {
     let app = test_app().await;
-    let AuthResponse { refresh_token, .. } = login_and_get_tokens(&app).await;
+    let auth = login_and_get_tokens(&app).await;
+    let refresh_token = refresh_token_value(&auth).to_owned();
 
     let logout_response = app
         .clone()
@@ -1174,7 +1186,8 @@ async fn logout_revokes_refresh_token() {
 #[tokio::test]
 async fn expired_refresh_token_is_rejected() {
     let (app, db) = test_app_with_db().await;
-    let AuthResponse { refresh_token, .. } = login_and_get_tokens(&app).await;
+    let auth = login_and_get_tokens(&app).await;
+    let refresh_token = refresh_token_value(&auth).to_owned();
 
     use crate::entity::{RefreshToken, refresh_token};
     use crate::refresh_token::hash_token;

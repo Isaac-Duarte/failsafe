@@ -6,4 +6,5 @@ use crate::auth::JwtService;
 pub struct AppState {
     pub db: DatabaseConnection,
     pub jwt: JwtService,
+    pub encryption_key: String,
 }

@@ -84,10 +84,7 @@ pub async fn issue_auth_response(
 ) -> Result<AuthResponse, ServerError> {
     let token = state.jwt.issue(account_id)?;
     let refresh_token = issue(&state.db, account_id).await?;
-    Ok(AuthResponse {
-        token,
-        refresh_token,
-    })
+    Ok(AuthResponse::authenticated(token, refresh_token))
 }
 
 pub async fn rotate(state: &AppState, raw: &str) -> Result<AuthResponse, ServerError> {
@@ -121,10 +118,7 @@ async fn rotate_in_transaction(
     .await?;
 
     let token = jwt.issue(account_id)?;
-    Ok(AuthResponse {
-        token,
-        refresh_token: new_raw,
-    })
+    Ok(AuthResponse::authenticated(token, new_raw))
 }
 
 pub async fn logout(state: &AppState, raw: &str) -> Result<(), ServerError> {

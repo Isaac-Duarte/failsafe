@@ -10,12 +10,15 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AuthError, ServerResult};
 
 const TOKEN_TTL: Duration = Duration::from_secs(60 * 60);
+const MFA_TOKEN_TTL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: String,
     exp: usize,
     iat: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mfa_pending: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -33,11 +36,25 @@ impl JwtService {
     }
 
     pub fn issue(&self, account_id: AccountId) -> ServerResult<String> {
+        self.issue_with_ttl(account_id, TOKEN_TTL, None)
+    }
+
+    pub fn issue_mfa_pending(&self, account_id: AccountId) -> ServerResult<String> {
+        self.issue_with_ttl(account_id, MFA_TOKEN_TTL, Some(true))
+    }
+
+    fn issue_with_ttl(
+        &self,
+        account_id: AccountId,
+        ttl: Duration,
+        mfa_pending: Option<bool>,
+    ) -> ServerResult<String> {
         let now = unix_now();
         let claims = Claims {
             sub: account_id.to_string(),
             iat: now,
-            exp: now + TOKEN_TTL.as_secs() as usize,
+            exp: now + ttl.as_secs() as usize,
+            mfa_pending,
         };
 
         encode(&Header::default(), &claims, &self.encoding)
@@ -47,6 +64,24 @@ impl JwtService {
     pub fn validate(&self, token: &str) -> ServerResult<AccountId> {
         let data = decode::<Claims>(token, &self.decoding, &Validation::default())
             .map_err(|_| AuthError::InvalidToken)?;
+
+        if data.claims.mfa_pending == Some(true) {
+            return Err(AuthError::InvalidToken.into());
+        }
+
+        data.claims
+            .sub
+            .parse::<AccountId>()
+            .map_err(|_| AuthError::InvalidToken.into())
+    }
+
+    pub fn validate_mfa_pending(&self, token: &str) -> ServerResult<AccountId> {
+        let data = decode::<Claims>(token, &self.decoding, &Validation::default())
+            .map_err(|_| AuthError::InvalidToken)?;
+
+        if data.claims.mfa_pending != Some(true) {
+            return Err(AuthError::InvalidToken.into());
+        }
 
         data.claims
             .sub

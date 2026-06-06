@@ -1,29 +1,30 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "account")]
+#[sea_orm(table_name = "recovery_code")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
+    pub account_id: Uuid,
     #[sea_orm(unique)]
-    pub email: String,
-    pub password_hash: String,
-    pub totp_secret: Option<String>,
-    pub totp_enabled: bool,
+    pub code_hash: String,
+    pub used_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::device::Entity")]
-    Device,
-    #[sea_orm(has_many = "super::recovery_code::Entity")]
-    RecoveryCode,
+    #[sea_orm(
+        belongs_to = "super::account::Entity",
+        from = "Column::AccountId",
+        to = "super::account::Column::Id"
+    )]
+    Account,
 }
 
-impl Related<super::device::Entity> for Entity {
+impl Related<super::account::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Device.def()
+        Relation::Account.def()
     }
 }
 

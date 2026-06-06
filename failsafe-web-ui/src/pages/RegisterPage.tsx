@@ -15,12 +15,24 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters")
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match")
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -76,6 +88,17 @@ export function RegisterPage() {
             required
             value={password}
             onChange={setPassword}
+            disabled={loading}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirm-password">Confirm password</Label>
+          <PasswordInput
+            id="confirm-password"
+            autoComplete="new-password"
+            required
+            value={confirmPassword}
+            onChange={setConfirmPassword}
             disabled={loading}
           />
         </div>

@@ -52,8 +52,37 @@ pub struct AuthLoginRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthResponse {
-    pub token: String,
-    pub refresh_token: String,
+    pub token: Option<String>,
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub mfa_required: bool,
+    pub mfa_token: Option<String>,
+}
+
+impl AuthResponse {
+    pub fn authenticated(token: String, refresh_token: String) -> Self {
+        Self {
+            token: Some(token),
+            refresh_token: Some(refresh_token),
+            mfa_required: false,
+            mfa_token: None,
+        }
+    }
+
+    pub fn mfa_required(mfa_token: String) -> Self {
+        Self {
+            token: None,
+            refresh_token: None,
+            mfa_required: true,
+            mfa_token: Some(mfa_token),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct AuthMfaLoginRequest {
+    pub mfa_token: String,
+    pub code: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
@@ -69,6 +98,35 @@ pub struct AuthLogoutRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AccountResponse {
     pub email: String,
+    pub totp_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct TotpSetupResponse {
+    pub otpauth_uri: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct TotpEnableRequest {
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct TotpEnableResponse {
+    pub recovery_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct TotpDisableRequest {
+    pub password: String,
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
 }
 
 /// Create or update a device's transport registration.

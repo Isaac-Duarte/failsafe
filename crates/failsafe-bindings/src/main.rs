@@ -1,7 +1,9 @@
 use failsafe_core::api::{
-    AccountResponse, ApiError, AuthLoginRequest, AuthLogoutRequest, AuthRefreshRequest,
-    AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse, DevicePatchRequest,
-    DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
+    AccountResponse, ApiError, AuthLoginRequest, AuthLogoutRequest, AuthMfaLoginRequest,
+    AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest, DeviceInfo,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
+    PairingRedeemRequest, TotpDisableRequest, TotpEnableRequest, TotpEnableResponse,
+    TotpSetupResponse,
 };
 use failsafe_core::feature::FeatureId;
 use specta::Types;
@@ -11,10 +13,16 @@ fn main() {
     let types = Types::default()
         .register::<AuthRegisterRequest>()
         .register::<AuthLoginRequest>()
+        .register::<AuthMfaLoginRequest>()
         .register::<AuthResponse>()
         .register::<AuthRefreshRequest>()
         .register::<AuthLogoutRequest>()
         .register::<AccountResponse>()
+        .register::<TotpSetupResponse>()
+        .register::<TotpEnableRequest>()
+        .register::<TotpEnableResponse>()
+        .register::<TotpDisableRequest>()
+        .register::<ChangePasswordRequest>()
         .register::<DeviceUpsertRequest>()
         .register::<DeviceInfo>()
         .register::<DeviceListResponse>()
