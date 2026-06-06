@@ -28,6 +28,15 @@ impl FramePreprocessor {
         }
     }
 
+    pub fn set_max_width(&mut self, max_width: u32) {
+        if self.max_width != max_width {
+            self.max_width = max_width;
+            self.cached_dst_width = 0;
+            self.cached_dst_height = 0;
+            self.dst_image = None;
+        }
+    }
+
     pub fn rgba_to_rgb(
         &mut self,
         rgba: Vec<u8>,
@@ -111,6 +120,14 @@ mod tests {
     fn output_dimensions_skips_downscale_when_small_enough() {
         let (w, h) = output_dimensions(1280, 720, 1920);
         assert_eq!((w, h), (1280, 720));
+    }
+
+    #[test]
+    fn set_max_width_clears_cached_resize_buffers() {
+        let mut preprocessor = FramePreprocessor::new(1280);
+        preprocessor.set_max_width(640);
+        let (width, height) = output_dimensions(3840, 2160, 640);
+        assert_eq!((width, height), (640, 360));
     }
 
     #[test]

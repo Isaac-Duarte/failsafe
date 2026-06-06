@@ -89,7 +89,7 @@ impl ControlServer {
                     .await;
             }
             ControlRequest::OpenScreenShare { target } => {
-                self.handle_open_screen_share(&mut stream, target).await;
+                self.handle_open_screen_share(stream, target).await;
             }
         }
     }
@@ -178,7 +178,7 @@ impl ControlServer {
         let _ = write_half.shutdown().await;
     }
 
-    async fn handle_open_screen_share(&self, stream: &mut UnixStream, target: DeviceId) {
+    async fn handle_open_screen_share(&self, mut stream: UnixStream, target: DeviceId) {
         if !self
             .local_features
             .read()
@@ -186,7 +186,7 @@ impl ControlServer {
             .contains(&FeatureId::ScreenShare)
         {
             let _ = send_response(
-                stream,
+                &mut stream,
                 &ControlResponse::Error {
                     message: "screen_share is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
                 },
@@ -201,7 +201,7 @@ impl ControlServer {
             .await
         {
             let _ = send_response(
-                stream,
+                &mut stream,
                 &ControlResponse::Error {
                     message: format!(
                         "screen_share is not enabled on device {target}; enable it on both devices"
@@ -214,7 +214,7 @@ impl ControlServer {
 
         if !self.iroh.connected_peers().await.contains(&target) {
             let _ = send_response(
-                stream,
+                &mut stream,
                 &ControlResponse::Error {
                     message: format!("device {target} is offline or unreachable"),
                 },
@@ -227,7 +227,7 @@ impl ControlServer {
             Ok(session) => session,
             Err(error) => {
                 let _ = send_response(
-                    stream,
+                    &mut stream,
                     &ControlResponse::Error {
                         message: format!("failed to open screen share: {error}"),
                     },
@@ -237,7 +237,7 @@ impl ControlServer {
             }
         };
 
-        if send_response(stream, &ControlResponse::Ready)
+        if send_response(&mut stream, &ControlResponse::Ready)
             .await
             .is_err()
         {

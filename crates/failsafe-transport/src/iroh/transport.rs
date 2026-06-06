@@ -28,7 +28,6 @@ use crate::peer_updater::PeerAddressUpdater;
 use crate::screen;
 use crate::shell;
 use crate::transport::{Transport, TransportError};
-use tokio::io::AsyncWriteExt;
 
 pub struct IrohTransport {
     device_id: DeviceId,
@@ -197,8 +196,6 @@ impl IrohTransport {
         let init = screen::build_screen_init();
         send.write_all(&init)
             .await
-            .map_err(|error| TransportError::Codec(error.to_string()))?;
-        send.finish()
             .map_err(|error| TransportError::Codec(error.to_string()))?;
 
         Ok(ScreenSession {

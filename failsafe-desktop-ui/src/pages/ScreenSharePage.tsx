@@ -1,9 +1,13 @@
-import { useMemo, useRef } from "react"
+import { useMemo } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
-import { Maximize2, Minimize2, Monitor, X } from "lucide-react"
+import { Check, Maximize2, Minimize2, Monitor, Settings2, X } from "lucide-react"
 
 import { useFullscreen } from "@/hooks/useFullscreen"
-import { useScreenShare } from "@/hooks/useScreenShare"
+import {
+  SCREEN_QUALITY_PRESETS,
+  useScreenShare,
+  type ScreenQualityPreset,
+} from "@/hooks/useScreenShare"
 import {
   Alert,
   AlertDescription,
@@ -16,15 +20,29 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
 } from "@failsafe/ui"
 
 export function ScreenSharePage() {
   const { deviceId } = useParams()
   const [searchParams] = useSearchParams()
   const deviceName = searchParams.get("name") ?? deviceId ?? "Device"
-  const viewportRef = useRef<HTMLDivElement>(null)
-  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(viewportRef)
-  const { frameUrl, status, error, stop } = useScreenShare(deviceId, deviceName)
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
+  const { frameUrl, status, error, quality, setQuality, stop } = useScreenShare(
+    deviceId,
+    deviceName
+  )
+
+  const qualityLabel = useMemo(
+    () =>
+      SCREEN_QUALITY_PRESETS.find((preset) => preset.value === quality)?.label ??
+      "Auto",
+    [quality]
+  )
 
   const statusLabel = useMemo(() => {
     switch (status) {
@@ -40,6 +58,10 @@ export function ScreenSharePage() {
         return "Idle"
     }
   }, [status])
+
+  function handleQualityChange(preset: ScreenQualityPreset) {
+    void setQuality(preset)
+  }
 
   return (
     <AppShell
@@ -82,14 +104,13 @@ export function ScreenSharePage() {
           </CardHeader>
           <CardContent>
             <div
-              ref={viewportRef}
               className={cn(
                 "screen-viewport relative flex items-center justify-center overflow-hidden",
                 isFullscreen
-                  ? "h-full w-full bg-black"
+                  ? "fixed inset-0 z-50 h-screen w-screen bg-black"
                   : "min-h-[24rem] rounded-lg border border-border/50"
               )}
-              onDoubleClick={() => void toggleFullscreen()}
+              onDoubleClick={() => toggleFullscreen()}
             >
               {frameUrl ? (
                 <img
@@ -115,17 +136,54 @@ export function ScreenSharePage() {
                 </p>
               ) : null}
               {frameUrl ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon-sm"
-                  className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm"
-                  onClick={() => void toggleFullscreen()}
-                  aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                  title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen (double-click stream)"}
-                >
-                  {isFullscreen ? <Minimize2 /> : <Maximize2 />}
-                </Button>
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="bg-background/80 backdrop-blur-sm"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Settings2 />
+                        {qualityLabel}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Quality</DropdownMenuLabel>
+                      {SCREEN_QUALITY_PRESETS.map((preset) => (
+                        <DropdownMenuItem
+                          key={preset.value}
+                          onClick={() => handleQualityChange(preset.value)}
+                        >
+                          <span className="flex-1">{preset.label}</span>
+                          {quality === preset.value ? (
+                            <Check className="size-4" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon-sm"
+                    className="bg-background/80 backdrop-blur-sm"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleFullscreen()
+                    }}
+                    aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                    title={
+                      isFullscreen
+                        ? "Exit fullscreen (Esc)"
+                        : "Fullscreen (double-click stream)"
+                    }
+                  >
+                    {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+                  </Button>
+                </div>
               ) : null}
             </div>
           </CardContent>

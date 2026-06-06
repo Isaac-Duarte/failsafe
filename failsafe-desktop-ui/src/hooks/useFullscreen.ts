@@ -1,52 +1,32 @@
-import { useCallback, useEffect, useState, type RefObject } from "react"
+import { useCallback, useEffect, useState } from "react"
 
-function fullscreenElement(): Element | null {
-  const doc = document as Document & { webkitFullscreenElement?: Element | null }
-  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null
-}
-
-export function useFullscreen(targetRef: RefObject<HTMLElement | null>) {
+export function useFullscreen() {
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   useEffect(() => {
-    const onChange = () => {
-      setIsFullscreen(fullscreenElement() === targetRef.current)
-    }
-
-    document.addEventListener("fullscreenchange", onChange)
-    document.addEventListener("webkitfullscreenchange", onChange)
-    return () => {
-      document.removeEventListener("fullscreenchange", onChange)
-      document.removeEventListener("webkitfullscreenchange", onChange)
-    }
-  }, [targetRef])
-
-  const toggle = useCallback(async () => {
-    const element = targetRef.current
-    if (!element) {
+    if (!isFullscreen) {
       return
     }
 
-    if (fullscreenElement()) {
-      if (document.exitFullscreen) {
-        await document.exitFullscreen()
-      } else {
-        const doc = document as Document & { webkitExitFullscreen?: () => Promise<void> }
-        await doc.webkitExitFullscreen?.()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsFullscreen(false)
       }
-      return
     }
 
-    if (element.requestFullscreen) {
-      await element.requestFullscreen()
-      return
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener("keydown", onKeyDown)
     }
+  }, [isFullscreen])
 
-    const webkitElement = element as HTMLElement & {
-      webkitRequestFullscreen?: () => Promise<void>
-    }
-    await webkitElement.webkitRequestFullscreen?.()
-  }, [targetRef])
+  const toggle = useCallback(() => {
+    setIsFullscreen((current) => !current)
+  }, [])
 
   return { isFullscreen, toggle }
 }

@@ -2325,6 +2325,8 @@ dependencies = [
  "failsafe-core",
  "fast_image_resize",
  "image",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

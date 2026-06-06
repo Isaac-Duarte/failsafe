@@ -6,6 +6,30 @@ interface ScreenFrameEvent {
   jpeg: number[]
 }
 
+export const SCREEN_QUALITY_PRESETS = [
+  { value: "auto", label: "Auto" },
+  { value: "1080p", label: "1080p" },
+  { value: "720p", label: "720p" },
+  { value: "480p", label: "480p" },
+  { value: "360p", label: "360p" },
+] as const
+
+export type ScreenQualityPreset =
+  (typeof SCREEN_QUALITY_PRESETS)[number]["value"]
+
+const QUALITY_STORAGE_KEY = "failsafe-screen-quality"
+
+function loadStoredQuality(): ScreenQualityPreset {
+  const stored = localStorage.getItem(QUALITY_STORAGE_KEY)
+  if (
+    stored &&
+    SCREEN_QUALITY_PRESETS.some((preset) => preset.value === stored)
+  ) {
+    return stored as ScreenQualityPreset
+  }
+  return "auto"
+}
+
 export function useScreenShare(
   deviceId: string | undefined,
   deviceName: string | undefined
@@ -15,6 +39,7 @@ export function useScreenShare(
     "idle"
   )
   const [error, setError] = useState<string | null>(null)
+  const [quality, setQualityState] = useState<ScreenQualityPreset>(loadStoredQuality)
 
   const stop = useCallback(async () => {
     try {
@@ -25,6 +50,27 @@ export function useScreenShare(
     setStatus("stopped")
   }, [])
 
+  const setQuality = useCallback(
+    async (preset: ScreenQualityPreset) => {
+      setQualityState(preset)
+      localStorage.setItem(QUALITY_STORAGE_KEY, preset)
+
+      if (status === "connecting" || status === "live") {
+        try {
+          await invoke("set_screen_quality", { preset })
+        } catch (qualityError) {
+          setStatus("error")
+          setError(
+            qualityError instanceof Error
+              ? qualityError.message
+              : String(qualityError)
+          )
+        }
+      }
+    },
+    [status]
+  )
+
   useEffect(() => {
     if (!deviceId) {
       return
@@ -33,6 +79,8 @@ export function useScreenShare(
     let active = true
     let objectUrl: string | null = null
     const unlisteners: UnlistenFn[] = []
+    const initialQuality = loadStoredQuality()
+    setQualityState(initialQuality)
 
     async function start() {
       setStatus("connecting")
@@ -42,6 +90,7 @@ export function useScreenShare(
         await invoke("start_screen_share", {
           deviceId,
           deviceName: deviceName ?? deviceId,
+          quality: initialQuality,
         })
         if (!active) {
           return
@@ -102,5 +151,5 @@ export function useScreenShare(
     }
   }, [deviceId, deviceName])
 
-  return { frameUrl, status, error, stop }
+  return { frameUrl, status, error, quality, setQuality, stop }
 }

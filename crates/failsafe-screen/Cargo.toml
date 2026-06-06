@@ -7,6 +7,8 @@ edition.workspace = true
 fast_image_resize = "5"
 failsafe-core.workspace = true
 image.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tracing.workspace = true
