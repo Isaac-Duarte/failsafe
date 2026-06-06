@@ -1,0 +1,17 @@
+[package]
+name = "failsafe-port"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+failsafe-core.workspace = true
+failsafe-transport = { workspace = true, features = ["iroh"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+failsafe-core.workspace = true
+failsafe-transport = { workspace = true, features = ["iroh"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

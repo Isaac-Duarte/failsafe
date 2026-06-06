@@ -1552,6 +1552,7 @@ dependencies = [
  "dotenvy",
  "failsafe-clipboard",
  "failsafe-core",
+ "failsafe-port",
  "failsafe-shell",
  "failsafe-transport",
  "gethostname",
@@ -1609,6 +1610,18 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "failsafe-port"
+version = "0.1.0"
+dependencies = [
+ "failsafe-core",
+ "failsafe-transport",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

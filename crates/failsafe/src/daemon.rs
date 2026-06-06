@@ -22,7 +22,7 @@ use tracing::info;
 use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
-use crate::port_service::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
+use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
 use crate::server::ServerClient;
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
