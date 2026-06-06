@@ -58,6 +58,7 @@ export {
   TableRow,
 } from "./components/ui/table"
 export {
+  formatFeatureDescription,
   formatFeatureLabel,
   isKnownFeature,
   KNOWN_FEATURES,

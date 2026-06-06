@@ -29,6 +29,10 @@ export function formatFeatureLabel(featureId: string): string {
   return featureById.get(featureId as KnownFeatureId)?.label ?? featureId
 }
 
+export function formatFeatureDescription(featureId: string): string | undefined {
+  return featureById.get(featureId as KnownFeatureId)?.description
+}
+
 export function isKnownFeature(featureId: string): featureId is KnownFeatureId {
   return featureById.has(featureId as KnownFeatureId)
 }
