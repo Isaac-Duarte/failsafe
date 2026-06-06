@@ -1,4 +1,4 @@
-import { Outlet, useLocation, useNavigate } from "react-router-dom"
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { ChevronDown, LogOut, Monitor } from "lucide-react"
 
 import {
@@ -21,9 +21,11 @@ export function AppLayout() {
   const navigate = useNavigate()
   const authenticated = isAuthenticated()
   const { email, loading: accountLoading } = useAccount()
+  const isLandingPage = location.pathname === "/"
   const isAuthPage =
     location.pathname === "/login" || location.pathname === "/register"
-  const homeHref = authenticated ? "/devices" : "/login"
+  const showSubtitle = isLandingPage || isAuthPage
+  const homeHref = "/"
 
   async function handleLogout() {
     await logout()
@@ -33,10 +35,19 @@ export function AppLayout() {
   return (
     <AppShell
       homeHref={homeHref}
-      subtitle={isAuthPage ? "Sync across your devices" : undefined}
+      subtitle={showSubtitle ? "Sync across your devices" : undefined}
       centered={isAuthPage}
       actions={
-        authenticated ? (
+        !authenticated && isLandingPage ? (
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/login">Log in</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link to="/register">Get started</Link>
+            </Button>
+          </>
+        ) : authenticated ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
