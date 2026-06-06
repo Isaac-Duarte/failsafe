@@ -259,7 +259,11 @@ async fn pairing_code_can_be_redeemed_once() {
                 .uri("/api/v1/pairing/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&PairingRedeemRequest { code: code.clone() }).unwrap(),
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code: code.clone(),
+                        device: None,
+                    })
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -295,7 +299,11 @@ async fn pairing_code_can_be_redeemed_once() {
                 .uri("/api/v1/pairing/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&PairingRedeemRequest { code }).unwrap(),
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code,
+                        device: None,
+                    })
+                    .unwrap(),
                 ))
                 .unwrap(),
         )
@@ -469,6 +477,210 @@ async fn delete_hides_device_and_blocks_upsert() {
         .await
         .unwrap();
 
+    assert_eq!(upsert_response.status(), axum::http::StatusCode::FORBIDDEN);
+}
+
+async fn create_pairing_code(app: &axum::Router, token: &str) -> String {
+    let create_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), axum::http::StatusCode::OK);
+    let PairingCreateResponse { code, .. } = body_json(create_response.into_body()).await;
+    code
+}
+
+#[tokio::test]
+async fn deleted_device_can_rejoin_via_pairing_redeem() {
+    let (app, db) = test_app_with_db().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    upsert_test_device(&app, &token, device_id).await;
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), axum::http::StatusCode::OK);
+
+    let code = create_pairing_code(&app, &token).await;
+
+    let redeem_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing/redeem")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code,
+                        device: Some(DeviceUpsertRequest {
+                            device_id,
+                            name: "laptop".to_owned(),
+                            iroh_public_key: "restored-key".to_owned(),
+                            enabled_features: vec![FeatureId::Clipboard],
+                        }),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
+    let AuthResponse {
+        token: redeemed_token,
+        ..
+    } = body_json(redeem_response.into_body()).await;
+
+    let model = Device::find_by_id(device_id.0)
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(model.deleted_at.is_none());
+    assert_eq!(model.iroh_public_key, "restored-key");
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {redeemed_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let DeviceListResponse { devices } = body_json(list_response.into_body()).await;
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].device_id, device_id);
+    assert_eq!(devices[0].iroh_public_key, "restored-key");
+
+    let upsert_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {redeemed_token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "restored-key".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upsert_response.status(), axum::http::StatusCode::OK);
+
+    let heartbeat_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/devices/{device_id}/heartbeat"))
+                .header("authorization", format!("Bearer {redeemed_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(heartbeat_response.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn redeem_without_device_does_not_restore_deleted_device() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    upsert_test_device(&app, &token, device_id).await;
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), axum::http::StatusCode::OK);
+
+    let code = create_pairing_code(&app, &token).await;
+
+    let redeem_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing/redeem")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code,
+                        device: None,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
+
+    let upsert_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(upsert_response.status(), axum::http::StatusCode::FORBIDDEN);
 }
 

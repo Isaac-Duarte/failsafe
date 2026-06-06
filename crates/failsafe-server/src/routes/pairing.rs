@@ -10,6 +10,7 @@ use crate::entity::{PairingCode, pairing_code};
 use crate::error::{ServerError, ServerResult};
 use crate::pairing::{generate_code, normalize_code};
 use crate::refresh_token::issue_auth_response;
+use crate::routes::devices::{RegisterDeviceMode, register_device};
 use crate::state::AppState;
 
 const PAIRING_TTL_MINUTES: i64 = 10;
@@ -88,6 +89,10 @@ async fn redeem_pairing_code(
     let mut active: pairing_code::ActiveModel = record.into();
     active.used_at = Set(Some(Utc::now()));
     active.update(&state.db).await?;
+
+    if let Some(device) = request.device {
+        register_device(&state, account_id, device, RegisterDeviceMode::Pairing).await?;
+    }
 
     Ok(Json(issue_auth_response(&state, account_id).await?))
 }

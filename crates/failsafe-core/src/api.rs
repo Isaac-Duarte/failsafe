@@ -115,4 +115,5 @@ pub struct PairingCreateResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PairingRedeemRequest {
     pub code: String,
+    pub device: Option<DeviceUpsertRequest>,
 }

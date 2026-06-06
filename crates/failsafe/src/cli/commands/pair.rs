@@ -1,6 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use failsafe::{Credentials, DaemonError, ServerClient, register_local_device};
+use failsafe_core::api::DeviceUpsertRequest;
+use failsafe_core::peer_address::PeerAddressBook;
+
+use failsafe::{
+    Credentials, DaemonError, ServerClient, create_transport_bundle, register_local_device,
+};
 
 use crate::cli::context::{config_path_or_default, load_config};
 use crate::cli::util::default_hostname;
@@ -57,7 +62,22 @@ async fn pair_join(
         DaemonError::Config("pairing code must be 6 uppercase alphanumeric characters".to_owned())
     })?;
 
-    let response = ServerClient::redeem_pairing_code(&config.server_url, &normalized).await?;
+    let bundle = create_transport_bundle(&config, PeerAddressBook::default()).await?;
+    let iroh_public_key = bundle
+        .iroh_public_key
+        .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
+
+    let response = ServerClient::redeem_pairing_code(
+        &config.server_url,
+        &normalized,
+        Some(DeviceUpsertRequest {
+            device_id: config.device_id,
+            name: config.device_name.clone(),
+            iroh_public_key: iroh_public_key.clone(),
+            enabled_features: config.enabled_features.clone(),
+        }),
+    )
+    .await?;
 
     let credentials_path = Credentials::default_path().ok_or_else(|| {
         DaemonError::Config("could not determine credentials path for this platform".to_owned())

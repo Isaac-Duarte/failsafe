@@ -54,12 +54,28 @@ async fn upsert_device(
         ));
     }
 
+    let model = register_device(&state, account_id, request, RegisterDeviceMode::Upsert).await?;
+    Ok(Json(model_to_info(model)?))
+}
+
+pub(crate) enum RegisterDeviceMode {
+    Upsert,
+    Pairing,
+}
+
+pub(crate) async fn register_device(
+    state: &AppState,
+    account_id: AccountId,
+    request: DeviceUpsertRequest,
+    mode: RegisterDeviceMode,
+) -> ServerResult<device::Model> {
     if request.name.trim().is_empty() || request.iroh_public_key.trim().is_empty() {
         return Err(ServerError::BadRequest(
             "name and iroh_public_key are required".to_owned(),
         ));
     }
 
+    let device_id = request.device_id.0;
     let existing = Device::find_by_id(device_id).one(&state.db).await?;
 
     if let Some(existing) = existing {
@@ -68,7 +84,22 @@ async fn upsert_device(
         }
 
         if existing.deleted_at.is_some() {
-            return Err(ServerError::ForbiddenMessage("device removed".to_owned()));
+            return match mode {
+                RegisterDeviceMode::Upsert => Err(ServerError::ForbiddenMessage(
+                    "device removed".to_owned(),
+                )),
+                RegisterDeviceMode::Pairing => {
+                    let now = Utc::now();
+                    let mut active: device::ActiveModel = existing.into();
+                    active.deleted_at = Set(None);
+                    active.name = Set(request.name.trim().to_owned());
+                    active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
+                    active.enabled_features =
+                        Set(features_to_json(&request.enabled_features)?);
+                    active.last_seen = Set(Some(now));
+                    Ok(active.update(&state.db).await?)
+                }
+            };
         }
 
         // Policy fields (name, enabled_features) are server-authoritative and only
@@ -76,12 +107,11 @@ async fn upsert_device(
         let mut active: device::ActiveModel = existing.into();
         active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
         active.last_seen = Set(Some(Utc::now()));
-        let updated = active.update(&state.db).await?;
-        return Ok(Json(model_to_info(updated)?));
+        return Ok(active.update(&state.db).await?);
     }
 
     let now = Utc::now();
-    let created = device::ActiveModel {
+    Ok(device::ActiveModel {
         device_id: Set(device_id),
         account_id: Set(account_id.0),
         name: Set(request.name.trim().to_owned()),
@@ -92,9 +122,7 @@ async fn upsert_device(
         deleted_at: Set(None),
     }
     .insert(&state.db)
-    .await?;
-
-    Ok(Json(model_to_info(created)?))
+    .await?)
 }
 
 async fn patch_device(

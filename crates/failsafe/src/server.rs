@@ -92,6 +92,7 @@ impl ServerClient {
     pub async fn redeem_pairing_code(
         base_url: &str,
         code: &str,
+        device: Option<DeviceUpsertRequest>,
     ) -> Result<AuthResponse, DaemonError> {
         let client = reqwest::Client::new();
         let url = format!("{}/api/v1/pairing/redeem", base_url.trim_end_matches('/'));
@@ -99,6 +100,7 @@ impl ServerClient {
             .post(url)
             .json(&PairingRedeemRequest {
                 code: code.to_owned(),
+                device,
             })
             .send()
             .await
