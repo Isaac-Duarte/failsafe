@@ -1,7 +1,7 @@
 use axum::body::Body;
 use chrono::{Duration, Utc};
 use failsafe_core::api::{
-    AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
+    AccountId, AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
     DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
     PairingRedeemRequest,
 };
@@ -769,4 +769,35 @@ async fn serves_embedded_frontend() {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&bytes);
     assert!(html.contains("<!doctype html") || html.contains("<!DOCTYPE html"));
+}
+
+#[tokio::test]
+async fn protected_routes_reject_token_for_missing_account() {
+    let app = test_app().await;
+    let jwt = JwtService::new("integration-test-secret");
+    let token = jwt.issue(AccountId::new()).unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{}", DeviceId::new()))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id: DeviceId::new(),
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::Clipboard],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
 }
