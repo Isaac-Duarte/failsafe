@@ -28,7 +28,12 @@ pub async fn send(
     resume: Option<Uuid>,
     device: Option<String>,
     yes: bool,
+    cancel_all: bool,
 ) -> Result<(), DaemonError> {
+    if cancel_all {
+        return cancel_all_transfers(yes).await;
+    }
+
     if resume.is_none() && paths.is_empty() {
         return list_incomplete().await;
     }
@@ -124,6 +129,11 @@ pub async fn send(
 
     match recv_response(&mut stream).await? {
         ControlResponse::Ready => {}
+        ControlResponse::CancelTransfers { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected cancel transfers response".to_owned(),
+            ));
+        }
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }
@@ -192,6 +202,47 @@ pub async fn send(
                 )));
             }
         }
+    }
+}
+
+async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
+    if !yes {
+        if !io::stdin().is_terminal() {
+            return Err(DaemonError::Config(
+                "confirmation required when stdin is not a terminal; pass --yes".to_owned(),
+            ));
+        }
+
+        let confirmed = Confirm::new("Cancel all incomplete sends and receives?")
+            .with_default(false)
+            .prompt()
+            .map_err(|error| DaemonError::Config(error.to_string()))?;
+
+        if !confirmed {
+            println!("cancelled");
+            return Ok(());
+        }
+    }
+
+    let mut stream = connect_control(&control_socket_path()?)
+        .await
+        .map_err(map_control_connect_error)?;
+
+    send_request(&mut stream, &ControlRequest::CancelTransfers).await?;
+
+    match recv_response(&mut stream).await? {
+        ControlResponse::CancelTransfers { sends, receives } => {
+            if sends == 0 && receives == 0 {
+                println!("No incomplete transfers.");
+            } else {
+                println!("Cancelled {sends} incomplete send(s) and {receives} incomplete receive(s).");
+            }
+            Ok(())
+        }
+        ControlResponse::Ready => Err(DaemonError::Config(
+            "unexpected ready response for cancel transfers".to_owned(),
+        )),
+        ControlResponse::Error { message } => Err(DaemonError::Config(message)),
     }
 }
 

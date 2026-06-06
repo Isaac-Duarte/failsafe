@@ -91,6 +91,9 @@ pub enum Command {
         /// Skip confirmation prompt.
         #[arg(long)]
         yes: bool,
+        /// Cancel all incomplete sends and receives.
+        #[arg(long)]
+        cancel_all: bool,
     },
     /// Forward a local TCP port to a paired device.
     Port {

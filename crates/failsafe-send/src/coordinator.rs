@@ -70,6 +70,13 @@ impl SendCoordinator {
             .await;
     }
 
+    pub async fn cancel_all(&self) {
+        let pending: Vec<Uuid> = self.pending.lock().await.keys().copied().collect();
+        for transfer_id in pending {
+            self.cancel(transfer_id).await;
+        }
+    }
+
     pub async fn complete_ack(&self, ack: SendAck) {
         info!(
             transfer_id = %ack.transfer_id,

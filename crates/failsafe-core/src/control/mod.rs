@@ -46,6 +46,7 @@ pub enum ControlRequest {
         #[serde(default)]
         resume: bool,
     },
+    CancelTransfers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +93,7 @@ pub enum ControlEvent {
 pub enum ControlResponse {
     Ready,
     Error { message: String },
+    CancelTransfers { sends: usize, receives: usize },
 }
 
 pub fn control_socket_path() -> Result<PathBuf, ControlError> {

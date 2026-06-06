@@ -1,3 +1,4 @@
+mod cancel;
 mod coordinator;
 mod log;
 mod feature;
@@ -14,6 +15,7 @@ mod transfer_state;
 #[cfg(test)]
 mod integration_tests;
 
+pub use cancel::{cancel_all_incomplete_receives, cancel_all_incomplete_sends};
 pub use coordinator::SendCoordinator;
 pub use log::eprint_send;
 pub use feature::SendFeature;

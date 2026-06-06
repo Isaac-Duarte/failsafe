@@ -85,6 +85,11 @@ pub async fn port(
 
     match recv_response(&mut stream).await? {
         ControlResponse::Ready => {}
+        ControlResponse::CancelTransfers { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected cancel transfers response".to_owned(),
+            ));
+        }
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }

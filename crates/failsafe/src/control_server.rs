@@ -11,8 +11,9 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    encode_envelope, eprint_send, mark_send_complete, mark_send_failed, prepare_send_payload,
-    send_ack_timeout, SendCoordinator, SendEnvelope, SendProgressReporter,
+    cancel_all_incomplete_receives, cancel_all_incomplete_sends, encode_envelope, eprint_send,
+    mark_send_complete, mark_send_failed, prepare_send_payload, send_ack_timeout, SendCoordinator,
+    SendEnvelope, SendProgressReporter,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -134,7 +135,40 @@ impl ControlServer {
                 self.handle_send_files(stream, target, paths, transfer_id, resume)
                     .await;
             }
+            ControlRequest::CancelTransfers => {
+                self.handle_cancel_transfers(&mut stream).await;
+            }
         }
+    }
+
+    async fn handle_cancel_transfers(&self, stream: &mut ControlStream) {
+        let sends = match cancel_all_incomplete_sends(self.coordinator.as_ref()).await {
+            Ok(count) => count,
+            Err(message) => {
+                let _ = send_response(
+                    stream,
+                    &ControlResponse::Error { message },
+                )
+                .await;
+                return;
+            }
+        };
+        let receives = match cancel_all_incomplete_receives().await {
+            Ok(count) => count,
+            Err(message) => {
+                let _ = send_response(
+                    stream,
+                    &ControlResponse::Error { message },
+                )
+                .await;
+                return;
+            }
+        };
+        let _ = send_response(
+            stream,
+            &ControlResponse::CancelTransfers { sends, receives },
+        )
+        .await;
     }
 
     async fn handle_open_shell(
@@ -540,6 +574,9 @@ mod tests {
         match recv_response(&mut stream).await? {
             ControlResponse::Ready => Ok(stream),
             ControlResponse::Error { message } => Err(DaemonError::Config(message)),
+            ControlResponse::CancelTransfers { .. } => Err(DaemonError::Config(
+                "unexpected cancel transfers response".to_owned(),
+            )),
         }
     }
 

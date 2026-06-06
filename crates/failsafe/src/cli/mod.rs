@@ -39,7 +39,8 @@ pub async fn execute() -> Result<(), DaemonError> {
             resume,
             device,
             yes,
-        } => commands::send(config, server_url, paths, resume, device, yes).await,
+            cancel_all,
+        } => commands::send(config, server_url, paths, resume, device, yes, cancel_all).await,
         Command::Port {
             config,
             port,

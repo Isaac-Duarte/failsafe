@@ -111,6 +111,9 @@ impl ControlServer {
             ControlRequest::SendFiles { .. } => {
                 panic!("unexpected send request in port test");
             }
+            ControlRequest::CancelTransfers => {
+                panic!("unexpected cancel transfers request in port test");
+            }
         }
     }
 }
@@ -148,6 +151,9 @@ async fn open_port_forward_client(
     match recv_response(&mut stream).await.expect("recv response") {
         ControlResponse::Ready => stream,
         ControlResponse::Error { message } => panic!("port forward rejected: {message}"),
+        ControlResponse::CancelTransfers { .. } => {
+            panic!("unexpected cancel transfers response in port test")
+        }
     }
 }
 
