@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::PortProtocol;
@@ -13,7 +12,7 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
     encode_envelope, eprint_send, mark_send_complete, mark_send_failed, prepare_send_payload,
-    SendCoordinator, SendEnvelope,
+    send_ack_timeout, SendCoordinator, SendEnvelope,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -31,8 +30,6 @@ use crate::control::{
 };
 use crate::error::DaemonError;
 use crate::shell_service::run_outgoing_shell;
-
-const SEND_ACK_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct ControlServer {
     path: PathBuf,
@@ -366,11 +363,16 @@ impl ControlServer {
                 let progress_tx_for_callback = progress_tx.clone();
                 let mut emit_progress: Box<dyn FnMut(SendPhase, u64, u64, Option<String>) + Send> =
                     Box::new(move |phase, bytes_done, bytes_total, current_file| {
-                        let _ = progress_tx_for_callback.try_send(ControlEvent::SendProgress {
-                            phase,
-                            bytes_done,
-                            bytes_total,
-                            current_file,
+                        let tx = progress_tx_for_callback.clone();
+                        tokio::spawn(async move {
+                            let _ = tx
+                                .send(ControlEvent::SendProgress {
+                                    phase,
+                                    bytes_done,
+                                    bytes_total,
+                                    current_file,
+                                })
+                                .await;
                         });
                     });
                 prepare_send_payload(
@@ -410,20 +412,12 @@ impl ControlServer {
                 FeatureId::FileSend,
                 encode_envelope(&envelope),
             );
-            let transport = self.transport.clone();
-            let send_transfer_id = transfer_id;
-            let send_task = tokio::spawn(async move {
-                debug!(%send_transfer_id, "sending transfer metadata message");
-                let result = transport
-                    .send(transfer_message)
-                    .await
-                    .map_err(|error| error.to_string());
-                match &result {
-                    Ok(()) => debug!(%send_transfer_id, "transfer metadata message sent"),
-                    Err(message) => warn!(%send_transfer_id, %message, "transfer metadata send failed"),
-                }
-                result
-            });
+            debug!(%transfer_id, "sending transfer metadata message");
+            self.transport
+                .send(transfer_message)
+                .await
+                .map_err(|error| error.to_string())?;
+            debug!(%transfer_id, "transfer metadata message sent");
 
             let _ = progress_tx
                 .send(ControlEvent::SendProgress {
@@ -435,39 +429,29 @@ impl ControlServer {
                 .await;
             drop(progress_tx);
 
-            info!(%transfer_id, %target, "waiting for receiver acknowledgement");
+            let ack_timeout = send_ack_timeout(total_bytes);
+            info!(%transfer_id, %target, ?ack_timeout, "waiting for receiver acknowledgement");
             eprint_send(format_args!(
                 " waiting for ack transfer_id={transfer_id} target={target}"
             ));
-            match tokio::time::timeout(SEND_ACK_TIMEOUT, ack_rx).await {
+            match tokio::time::timeout(ack_timeout, ack_rx).await {
                 Ok(Ok(Ok(()))) => {
                     info!(%transfer_id, %target, "receiver acknowledged file transfer");
                     eprint_send(format_args!(" ack received for {transfer_id}"));
-                    tokio::spawn(async move {
-                        let _ = send_task.await;
-                    });
                     Ok(())
                 }
                 Ok(Ok(Err(message))) => {
                     warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
-                    send_task.abort();
                     Err(message)
                 }
                 Ok(Err(_)) => {
                     warn!(%transfer_id, %target, "acknowledgement channel closed before response");
-                    send_task.abort();
                     Err("transfer acknowledgement channel closed".to_owned())
                 }
                 Err(_) => {
-                    warn!(%transfer_id, %target, "timed out waiting for receiver acknowledgement");
+                    warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
                     eprint_send(format_args!(" ack timeout for {transfer_id}"));
-                    match send_task.await {
-                        Ok(Err(message)) => Err(message),
-                        Ok(Ok(())) => {
-                            Err("timed out waiting for receiver acknowledgement".to_owned())
-                        }
-                        Err(_) => Err("transfer send task failed".to_owned()),
-                    }
+                    Err("timed out waiting for receiver acknowledgement".to_owned())
                 }
             }
         }

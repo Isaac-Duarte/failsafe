@@ -83,9 +83,13 @@ async fn write_state<T: Serialize>(path: &Path, state: &T) -> Result<(), String>
     }
     let payload = serde_json::to_vec_pretty(state)
         .map_err(|error| format!("failed to encode transfer state: {error}"))?;
-    tokio::fs::write(path, payload)
+    let temp_path = path.with_extension("json.tmp");
+    tokio::fs::write(&temp_path, &payload)
         .await
-        .map_err(|error| format!("failed to write transfer state: {error}"))
+        .map_err(|error| format!("failed to write transfer state: {error}"))?;
+    tokio::fs::rename(&temp_path, path)
+        .await
+        .map_err(|error| format!("failed to commit transfer state: {error}"))
 }
 
 async fn read_state<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {

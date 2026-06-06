@@ -371,20 +371,6 @@ impl BlobTransfer for IrohBlobTransfer {
                     BlobError::Store(format!("failed to create parent dir: {error}"))
                 })?;
             }
-            if target.exists() {
-                tracing::info!(
-                    path = %target.display(),
-                    "export target already exists, skipping"
-                );
-                paths.push(target);
-                progress(BlobProgress {
-                    bytes_done: index as u64 + 1,
-                    bytes_total: total_files,
-                    current_file: Some(name.clone()),
-                });
-                continue;
-            }
-
             progress(BlobProgress {
                 bytes_done: index as u64,
                 bytes_total: total_files,

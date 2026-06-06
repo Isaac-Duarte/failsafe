@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,6 +8,7 @@ use failsafe_core::feature::{Feature, FeatureError, FeatureId};
 use failsafe_core::message::FeatureMessage;
 use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -14,7 +16,10 @@ use crate::coordinator::SendCoordinator;
 use crate::log::eprint_send;
 use crate::inbound::receive_dir;
 use crate::notify::notify_files_received;
-use crate::payload::{decode_envelope, encode_envelope, SendAck, SendEnvelope};
+use crate::payload::{
+    decode_envelope, encode_envelope, SendAck, SendEnvelope, SEND_PAYLOAD_VERSION,
+};
+use crate::resume::spawn_receive_resume_watcher;
 use crate::resume::receive_state_from_payload;
 use crate::transfer_state::{
     load_receive_state, remove_receive_state, save_receive_state, ReceiveStage,
@@ -26,6 +31,7 @@ pub struct SendFeature {
     limits: ClipboardLimits,
     transport: Arc<dyn Transport>,
     coordinator: Arc<SendCoordinator>,
+    receive_in_progress: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
 }
 
 impl SendFeature {
@@ -40,6 +46,17 @@ impl SendFeature {
             limits,
             transport,
             coordinator,
+            receive_in_progress: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn clone_for_task(&self) -> Self {
+        Self {
+            blob_transfer: self.blob_transfer.clone(),
+            limits: self.limits,
+            transport: self.transport.clone(),
+            coordinator: self.coordinator.clone(),
+            receive_in_progress: self.receive_in_progress.clone(),
         }
     }
 
@@ -48,6 +65,15 @@ impl SendFeature {
         blob_transfer: Arc<dyn BlobTransfer>,
         mut state: ReceiveTransferState,
     ) -> Result<(), String> {
+        let transfer_id = state.transfer_id;
+        let transfer_lock = {
+            let mut locks = self.receive_in_progress.lock().await;
+            locks
+                .entry(transfer_id)
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _receive_guard = transfer_lock.lock().await;
         self.run_receive(blob_transfer, &mut state).await
     }
 
@@ -73,6 +99,38 @@ impl SendFeature {
         from: DeviceId,
         payload: crate::payload::SendPayload,
     ) -> Result<(), FeatureError> {
+        let transfer_id = payload.transfer_id;
+        let transfer_lock = {
+            let mut locks = self.receive_in_progress.lock().await;
+            locks
+                .entry(transfer_id)
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _receive_guard = transfer_lock.lock().await;
+        let result = self.handle_transfer_locked(from, payload).await;
+        drop(_receive_guard);
+        self.receive_in_progress.lock().await.remove(&transfer_id);
+        result
+    }
+
+    async fn handle_transfer_locked(
+        &self,
+        from: DeviceId,
+        payload: crate::payload::SendPayload,
+    ) -> Result<(), FeatureError> {
+        let transfer_id = payload.transfer_id;
+
+        if payload.version != SEND_PAYLOAD_VERSION {
+            return Err(FeatureError::Failed(
+                FeatureId::FileSend,
+                format!(
+                    "unsupported send payload version {} (expected {SEND_PAYLOAD_VERSION})",
+                    payload.version
+                ),
+            ));
+        }
+
         info!(
             %from,
             transfer_id = %payload.transfer_id,
@@ -136,6 +194,11 @@ impl SendFeature {
                     " receive failed for {}: {message}",
                     payload.transfer_id
                 ));
+                if let Ok(mut state) = load_receive_state(transfer_id).await {
+                    state.stage = ReceiveStage::Failed;
+                    state.error = Some(message.clone());
+                    let _ = save_receive_state(&state).await;
+                }
                 let _ = self
                     .send_ack(
                         from,
@@ -281,17 +344,23 @@ impl Feature for SendFeature {
     }
 
     async fn start(&mut self) -> Result<(), FeatureError> {
-        let feature = SendFeature {
-            blob_transfer: self.blob_transfer.clone(),
-            limits: self.limits,
-            transport: self.transport.clone(),
-            coordinator: self.coordinator.clone(),
-        };
+        let feature = Arc::new(self.clone_for_task());
         let blob_transfer = self.blob_transfer.clone();
         let transport = self.transport.clone();
+        let feature_for_startup = feature.clone();
         tokio::spawn(async move {
-            crate::resume::resume_incomplete_receives(blob_transfer, transport, &feature).await;
+            crate::resume::resume_incomplete_receives(
+                blob_transfer,
+                transport,
+                &feature_for_startup,
+            )
+            .await;
         });
+        spawn_receive_resume_watcher(
+            self.blob_transfer.clone(),
+            self.transport.clone(),
+            feature,
+        );
         Ok(())
     }
 
@@ -308,8 +377,15 @@ impl Feature for SendFeature {
                 let limits = self.limits;
                 let transport = self.transport.clone();
                 let coordinator = self.coordinator.clone();
+                let receive_in_progress = self.receive_in_progress.clone();
                 tokio::spawn(async move {
-                    let feature = SendFeature::new(blob_transfer, limits, transport, coordinator);
+                    let feature = SendFeature {
+                        blob_transfer,
+                        limits,
+                        transport,
+                        coordinator,
+                        receive_in_progress,
+                    };
                     if let Err(error) = feature.handle_transfer(from, payload).await {
                         error!(%error, "file transfer handler failed");
                     }

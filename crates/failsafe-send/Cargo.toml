@@ -21,6 +21,6 @@ dirs.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
-failsafe-transport = { workspace = true, features = ["test-util"] }
+failsafe-transport = { workspace = true, features = ["test-util", "iroh", "iroh-blobs"] }
 tempfile = "3"
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }

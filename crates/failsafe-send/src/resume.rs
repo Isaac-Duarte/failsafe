@@ -1,8 +1,11 @@
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use failsafe_core::device::DeviceId;
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::transport::Transport;
+use tokio::time::MissedTickBehavior;
 use tracing::{info, warn};
 
 use crate::feature::SendFeature;
@@ -60,6 +63,29 @@ pub async fn resume_incomplete_receives(
             }
         }
     }
+}
+
+/// Polls for newly connected peers and resumes any incomplete receives from them.
+pub fn spawn_receive_resume_watcher(
+    blob_transfer: Arc<dyn BlobTransfer>,
+    transport: Arc<dyn Transport>,
+    feature: Arc<SendFeature>,
+) {
+    tokio::spawn(async move {
+        let mut known_peers = HashSet::new();
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        loop {
+            interval.tick().await;
+            let connected = transport.connected_peers().await;
+            let has_new_peer = connected.iter().any(|peer| !known_peers.contains(peer));
+            known_peers = connected.into_iter().collect();
+            if has_new_peer {
+                resume_incomplete_receives(blob_transfer.clone(), transport.clone(), &feature).await;
+            }
+        }
+    });
 }
 
 pub fn receive_state_from_payload(

@@ -162,6 +162,7 @@ impl DaemonBuilder {
             .clone()
             .unwrap_or_else(|| Arc::new(MockBlobTransfer::new()));
         let send_coordinator = SendCoordinator::new();
+        // File send intentionally has no size cap; blob import/export streams from disk.
         registry.register(Box::new(SendFeature::new(
             blob_transfer.clone(),
             ClipboardLimits::unlimited(),
@@ -189,6 +190,7 @@ impl DaemonBuilder {
             iroh_public_key: self.iroh_public_key,
             iroh: self.iroh,
             blob_transfer,
+            // No size limits on outbound sends (see SendFeature registration above).
             send_limits: ClipboardLimits::unlimited(),
             shell_sessions: None,
             port_sessions: None,
