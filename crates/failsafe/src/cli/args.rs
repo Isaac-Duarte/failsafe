@@ -75,6 +75,21 @@ pub enum Command {
         /// Device name or ID. Omit for interactive selection.
         device: Option<String>,
     },
+    /// Send files to a paired device.
+    Send {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Files or directories to send.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Device name or ID. Omit for interactive selection.
+        #[arg(long)]
+        device: Option<String>,
+        /// Skip confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Forward a local TCP port to a paired device.
     Port {
         /// Path to the config file.

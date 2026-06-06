@@ -42,7 +42,11 @@ impl Config {
             device_id,
             device_name: default_device_name(),
             server_url: default_server_url(),
-            enabled_features: vec![FeatureId::Clipboard, FeatureId::Shell],
+            enabled_features: vec![
+                FeatureId::Clipboard,
+                FeatureId::Shell,
+                FeatureId::FileSend,
+            ],
             blob_store_path: None,
             clipboard_max_file_bytes: default_clipboard_max_file_bytes(),
         }

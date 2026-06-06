@@ -16,6 +16,11 @@ export const KNOWN_FEATURES = [
     label: "Port Forward",
     description: "Accept forwarded TCP connections from other devices",
   },
+  {
+    id: "file_send",
+    label: "File Send",
+    description: "Receive explicit file transfers from other devices",
+  },
 ] as const
 
 export type KnownFeatureId = FeatureId

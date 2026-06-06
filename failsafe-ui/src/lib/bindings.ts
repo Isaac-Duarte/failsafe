@@ -67,7 +67,7 @@ export type DeviceUpsertRequest = {
 };
 
 /**  Identifies a sync feature */
-export type FeatureId = "clipboard" | "shell" | "port_forward";
+export type FeatureId = "clipboard" | "shell" | "port_forward" | "file_send";
 
 export type PairingCreateResponse = {
 	code: string,

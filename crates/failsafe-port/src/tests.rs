@@ -108,6 +108,9 @@ impl ControlServer {
             ControlRequest::OpenShell { .. } => {
                 panic!("unexpected shell request in port test");
             }
+            ControlRequest::SendFiles { .. } => {
+                panic!("unexpected send request in port test");
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 mod transport;
@@ -37,6 +38,37 @@ pub enum ControlRequest {
         local_port: u16,
         remote_port: u16,
         protocol: PortProtocol,
+    },
+    SendFiles {
+        target: crate::device::DeviceId,
+        paths: Vec<PathBuf>,
+        transfer_id: Uuid,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendPhase {
+    Preparing,
+    Storing,
+    Sending,
+    WaitingForAck,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ControlEvent {
+    SendProgress {
+        phase: SendPhase,
+        bytes_done: u64,
+        bytes_total: u64,
+        current_file: Option<String>,
+    },
+    SendComplete {
+        transfer_id: Uuid,
+    },
+    SendFailed {
+        message: String,
     },
 }
 
@@ -121,6 +153,26 @@ where
     let payload = read_message(stream).await?;
     serde_json::from_slice(&payload)
         .map_err(|error| ControlError::Config(format!("failed to decode control request: {error}")))
+}
+
+pub async fn write_event<S>(stream: &mut S, event: &ControlEvent) -> Result<(), ControlError>
+where
+    S: AsyncWrite + Unpin,
+{
+    let payload = serde_json::to_vec(event).map_err(|error| {
+        ControlError::Config(format!("failed to encode control event: {error}"))
+    })?;
+    write_message(stream, &payload).await
+}
+
+pub async fn read_event<S>(stream: &mut S) -> Result<ControlEvent, ControlError>
+where
+    S: AsyncRead + Unpin,
+{
+    let payload = read_message(stream).await?;
+    serde_json::from_slice(&payload).map_err(|error| {
+        ControlError::Config(format!("failed to decode control event: {error}"))
+    })
 }
 
 pub async fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {

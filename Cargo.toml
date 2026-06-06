@@ -5,6 +5,7 @@ members = [
     "crates/failsafe-clipboard",
     "crates/failsafe-core",
     "crates/failsafe-port",
+    "crates/failsafe-send",
     "crates/failsafe-shell",
     "crates/failsafe",
     "crates/failsafe-server",
@@ -28,6 +29,7 @@ async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
 failsafe-port = { path = "crates/failsafe-port" }
+failsafe-send = { path = "crates/failsafe-send" }
 failsafe-shell = { path = "crates/failsafe-shell" }
 failsafe = { path = "crates/failsafe" }
 failsafe-server = { path = "crates/failsafe-server" }
@@ -63,6 +65,9 @@ tower = "0.5"
 portable-pty = "0.9"
 crossterm = "0.29"
 inquire = "0.9"
+indicatif = "0.17"
+notify-rust = "4"
+tokio-util = { version = "0.7", features = ["rt"] }
 specta = { version = "2.0.0-rc.25", features = ["derive", "uuid"] }
 specta-typescript = "0.0.12"
 specta-serde = "0.0.12"
