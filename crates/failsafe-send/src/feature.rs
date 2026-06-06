@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use failsafe_clipboard::limits::ClipboardLimits;
@@ -445,6 +446,54 @@ impl SendFeature {
             }
         });
     }
+
+    async fn try_finalize_chunked_transfer(
+        &self,
+        from: DeviceId,
+        transfer_id: Uuid,
+    ) -> Result<bool, FeatureError> {
+        let payload = {
+            let mut pending = self.pending_chunked_transfers.lock().await;
+            let Some(state) = pending.get(&transfer_id) else {
+                return Ok(false);
+            };
+            if !state.is_complete() {
+                return Ok(false);
+            }
+            let state = pending.remove(&transfer_id).expect("transfer state present");
+            state
+                .into_payload()
+                .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error))?
+        };
+        self.spawn_transfer_handler(from, payload);
+        Ok(true)
+    }
+
+    fn spawn_incomplete_chunk_timeout(&self, from: DeviceId, transfer_id: Uuid) {
+        let pending_chunked_transfers = self.pending_chunked_transfers.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let state = pending_chunked_transfers
+                .lock()
+                .await
+                .remove(&transfer_id);
+            let Some(state) = state else {
+                return;
+            };
+            if !state.is_complete() {
+                let message = state.into_payload().unwrap_err();
+                error!(
+                    %transfer_id,
+                    from = %from,
+                    %message,
+                    "timed out waiting for remaining transfer manifest chunks"
+                );
+                eprint_send(format_args!(
+                    " manifest timeout for {transfer_id} from {from}: {message}"
+                ));
+            }
+        });
+    }
 }
 
 #[async_trait]
@@ -490,34 +539,45 @@ impl Feature for SendFeature {
                 Ok(())
             }
             SendEnvelope::TransferChunk(chunk) => {
-                let mut pending = self.pending_chunked_transfers.lock().await;
-                let Some(state) = pending.get_mut(&chunk.transfer_id) else {
-                    return Err(FeatureError::Failed(
-                        FeatureId::FileSend,
-                        format!(
-                            "received transfer chunk for unknown transfer {}",
-                            chunk.transfer_id
-                        ),
-                    ));
-                };
-                state.push_chunk(chunk.chunk_index, chunk.entries);
+                let transfer_id = chunk.transfer_id;
+                {
+                    let mut pending = self.pending_chunked_transfers.lock().await;
+                    let Some(state) = pending.get_mut(&transfer_id) else {
+                        return Err(FeatureError::Failed(
+                            FeatureId::FileSend,
+                            format!(
+                                "received transfer chunk for unknown transfer {transfer_id}"
+                            ),
+                        ));
+                    };
+                    state.push_chunk(chunk.chunk_index, chunk.entries);
+                }
+                self.try_finalize_chunked_transfer(message.from, transfer_id)
+                    .await?;
                 Ok(())
             }
             SendEnvelope::TransferEnd(end) => {
-                let Some(state) = self.pending_chunked_transfers.lock().await.remove(&end.transfer_id)
-                else {
-                    return Err(FeatureError::Failed(
-                        FeatureId::FileSend,
-                        format!(
-                            "received transfer end for unknown transfer {}",
-                            end.transfer_id
-                        ),
-                    ));
-                };
-                let payload = state.into_payload().map_err(|error| {
-                    FeatureError::Failed(FeatureId::FileSend, error)
-                })?;
-                self.spawn_transfer_handler(message.from, payload);
+                let transfer_id = end.transfer_id;
+                {
+                    let mut pending = self.pending_chunked_transfers.lock().await;
+                    let Some(state) = pending.get_mut(&transfer_id) else {
+                        return Err(FeatureError::Failed(
+                            FeatureId::FileSend,
+                            format!(
+                                "received transfer end for unknown transfer {transfer_id}"
+                            ),
+                        ));
+                    };
+                    state.mark_end(end.chunk_count);
+                }
+                if self
+                    .try_finalize_chunked_transfer(message.from, transfer_id)
+                    .await?
+                {
+                    return Ok(());
+                }
+                // End can arrive on a faster stream before the last chunks; wait for them.
+                self.spawn_incomplete_chunk_timeout(message.from, transfer_id);
                 Ok(())
             }
             SendEnvelope::Ack(ack) => self.handle_ack(ack).await,

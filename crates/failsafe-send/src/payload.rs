@@ -40,6 +40,8 @@ pub struct SendTransferChunk {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SendTransferEnd {
     pub transfer_id: Uuid,
+    #[serde(default)]
+    pub chunk_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
