@@ -104,6 +104,8 @@ pub async fn relay_terminal_io(stream: &mut UnixStream) -> Result<(), DaemonErro
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(32);
     let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(32);
 
+    let stdin_tx_for_reader = stdin_tx.clone();
+
     let stdin_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 256];
@@ -112,7 +114,10 @@ pub async fn relay_terminal_io(stream: &mut UnixStream) -> Result<(), DaemonErro
             if read == 0 {
                 break;
             }
-            if stdin_tx.blocking_send(buf[..read].to_vec()).is_err() {
+            if stdin_tx_for_reader
+                .blocking_send(buf[..read].to_vec())
+                .is_err()
+            {
                 break;
             }
         }
@@ -151,13 +156,19 @@ pub async fn relay_terminal_io(stream: &mut UnixStream) -> Result<(), DaemonErro
                 .map_err(DaemonError::Io)?;
             stream_write.flush().await.map_err(DaemonError::Io)?;
         }
+        stream_write.shutdown().await.map_err(DaemonError::Io)?;
         Ok::<(), DaemonError>(())
     };
 
-    let (stdout_result, stdin_result) = tokio::join!(socket_to_stdout, stdin_to_socket);
+    let relay_result = tokio::select! {
+        result = socket_to_stdout => {
+            drop(stdin_tx);
+            result
+        }
+        result = stdin_to_socket => result,
+    };
 
-    stdout_result?;
-    stdin_result?;
+    relay_result?;
 
     stdin_task
         .await

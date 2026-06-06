@@ -137,6 +137,8 @@ where
                 .await
                 .map_err(|error| TransportError::Codec(error.to_string()))?;
         }
+        send.finish()
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
         Ok::<(), TransportError>(())
     };
 
@@ -165,7 +167,10 @@ where
         Ok::<(), TransportError>(())
     };
 
-    tokio::try_join!(input_to_stream, stream_to_output)?;
+    tokio::select! {
+        result = input_to_stream => result?,
+        result = stream_to_output => result?,
+    }
     Ok(())
 }
 
@@ -181,6 +186,8 @@ pub async fn relay_shell_to_channels(
                 .await
                 .map_err(|error| TransportError::Codec(error.to_string()))?;
         }
+        send.finish()
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
         Ok::<(), TransportError>(())
     };
 
@@ -204,6 +211,9 @@ pub async fn relay_shell_to_channels(
         Ok::<(), TransportError>(())
     };
 
-    tokio::try_join!(input_to_stream, stream_to_output)?;
+    tokio::select! {
+        result = input_to_stream => result?,
+        result = stream_to_output => result?,
+    }
     Ok(())
 }
