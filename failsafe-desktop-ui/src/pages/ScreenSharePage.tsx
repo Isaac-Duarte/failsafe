@@ -21,7 +21,11 @@ export function ScreenSharePage() {
   const [searchParams] = useSearchParams()
   const deviceName = searchParams.get("name") ?? deviceId ?? "Device"
   const viewportRef = useRef<HTMLDivElement>(null)
-  const { status, error, stop } = useScreenShare(deviceId, deviceName, viewportRef)
+  const { viewerMode, frameUrl, status, error, stop } = useScreenShare(
+    deviceId,
+    deviceName,
+    viewportRef
+  )
 
   const statusLabel = useMemo(() => {
     switch (status) {
@@ -38,8 +42,13 @@ export function ScreenSharePage() {
     }
   }, [status])
 
+  const useGpuViewer = viewerMode === "gpu"
+
   return (
-    <div className="desktop-screen-share">
+    <div
+      className="desktop-screen-share"
+      data-viewer={useGpuViewer ? "gpu" : "webview"}
+    >
       <AppShell
         homeHref={`/screen-share/${deviceId ?? ""}`}
         subtitle="Screen share"
@@ -82,6 +91,13 @@ export function ScreenSharePage() {
                 ref={viewportRef}
                 className="screen-viewport relative flex min-h-[24rem] items-center justify-center overflow-hidden rounded-lg border border-border/50"
               >
+                {!useGpuViewer && frameUrl ? (
+                  <img
+                    src={frameUrl}
+                    alt={`Screen from ${deviceName}`}
+                    className="max-h-[70vh] w-full object-contain"
+                  />
+                ) : null}
                 {status !== "live" ? (
                   <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                     {status === "connecting"

@@ -1,3 +1,7 @@
+//! GPU-backed screen viewer for macOS and Windows.
+//! Linux uses the webview JPEG fallback because wgpu + transparent compositing
+//! is unreliable on Wayland/GTK.
+
 use std::io::Cursor;
 use std::sync::Mutex;
 

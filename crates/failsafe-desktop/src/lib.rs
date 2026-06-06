@@ -1,27 +1,47 @@
+#[cfg(not(target_os = "linux"))]
 mod screen_renderer;
 
 use std::str::FromStr;
-use std::sync::Arc;
 
 use failsafe_core::device::DeviceId;
 use failsafe_screen::ScreenViewerClient;
-use screen_renderer::{ScreenRenderer, ViewportRect};
 use tauri::{async_runtime, AppHandle, Emitter, Manager, RunEvent, State, WebviewWindow, WindowEvent};
 use tokio::sync::Mutex;
+#[cfg(not(target_os = "linux"))]
 use tracing::warn;
+#[cfg(not(target_os = "linux"))]
+use {
+    screen_renderer::{ScreenRenderer, ViewportRect},
+    std::sync::Arc,
+};
 
 struct ScreenShareRuntime {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    #[cfg(not(target_os = "linux"))]
     renderer: Arc<ScreenRenderer>,
 }
 
 impl ScreenShareRuntime {
+    #[cfg(not(target_os = "linux"))]
     fn new(renderer: Arc<ScreenRenderer>) -> Self {
         Self {
             task: Mutex::new(None),
             renderer,
         }
     }
+
+    #[cfg(target_os = "linux")]
+    fn new() -> Self {
+        Self {
+            task: Mutex::new(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, serde::Serialize)]
+struct ScreenFramePayload {
+    jpeg: Vec<u8>,
 }
 
 fn launch_args() -> (Option<String>, Option<String>) {
@@ -54,6 +74,15 @@ fn navigate_to_screen_share(
     window.eval(&script).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn screen_viewer_mode() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "webview"
+    } else {
+        "gpu"
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct ViewportBounds {
     x: u32,
@@ -67,15 +96,20 @@ fn set_screen_viewport(
     runtime: State<'_, ScreenShareRuntime>,
     bounds: ViewportBounds,
 ) -> Result<(), String> {
-    runtime.renderer.set_viewport(ViewportRect {
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-    });
+    #[cfg(not(target_os = "linux"))]
+    {
+        runtime.renderer.set_viewport(ViewportRect {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+        });
+    }
+    let _ = bounds;
     Ok(())
 }
 
+#[cfg(not(target_os = "linux"))]
 fn deactivate_renderer(app: &AppHandle, renderer: Arc<ScreenRenderer>) -> Result<(), String> {
     app.run_on_main_thread(move || {
         renderer.deactivate_and_clear();
@@ -103,30 +137,51 @@ async fn start_screen_share(
         }
     }
 
-    runtime.renderer.set_active(true);
+    #[cfg(not(target_os = "linux"))]
+    {
+        runtime.renderer.set_active(true);
 
-    let renderer = runtime.renderer.clone();
-    let app_handle = app.clone();
-    let task = tokio::spawn(async move {
-        let mut frames = client.frames;
-        while let Some(jpeg) = frames.recv().await {
-            let renderer = renderer.clone();
-            let frame_ok = app_handle
-                .run_on_main_thread(move || {
-                    if let Err(error) = renderer.submit_jpeg_and_render(&jpeg) {
-                        warn!("failed to render screen frame: {error}");
-                    }
-                })
-                .is_ok();
-            if !frame_ok {
-                break;
+        let renderer = runtime.renderer.clone();
+        let app_handle = app.clone();
+        let task = tokio::spawn(async move {
+            let mut frames = client.frames;
+            while let Some(jpeg) = frames.recv().await {
+                let renderer = renderer.clone();
+                let frame_ok = app_handle
+                    .run_on_main_thread(move || {
+                        if let Err(error) = renderer.submit_jpeg_and_render(&jpeg) {
+                            warn!("failed to render screen frame: {error}");
+                        }
+                    })
+                    .is_ok();
+                if !frame_ok {
+                    break;
+                }
             }
-        }
-        let _ = deactivate_renderer(&app_handle, renderer);
-        let _ = app_handle.emit("screen-stopped", ());
-    });
+            let _ = deactivate_renderer(&app_handle, renderer);
+            let _ = app_handle.emit("screen-stopped", ());
+        });
 
-    *runtime.task.lock().await = Some(task);
+        *runtime.task.lock().await = Some(task);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let app_handle = app.clone();
+        let task = tokio::spawn(async move {
+            let mut frames = client.frames;
+            while let Some(jpeg) = frames.recv().await {
+                let payload = ScreenFramePayload { jpeg };
+                if app_handle.emit("screen-frame", payload).is_err() {
+                    break;
+                }
+            }
+            let _ = app_handle.emit("screen-stopped", ());
+        });
+
+        *runtime.task.lock().await = Some(task);
+    }
+
     Ok(())
 }
 
@@ -138,7 +193,11 @@ async fn stop_screen_share(
     if let Some(task) = runtime.task.lock().await.take() {
         task.abort();
     }
-    deactivate_renderer(&app, runtime.renderer.clone())
+
+    #[cfg(not(target_os = "linux"))]
+    deactivate_renderer(&app, runtime.renderer.clone())?;
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -148,14 +207,23 @@ pub fn run() {
             start_screen_share,
             stop_screen_share,
             set_screen_viewport,
+            screen_viewer_mode,
         ])
         .setup(|app| {
-            let window = app
-                .get_webview_window("main")
-                .ok_or_else(|| "main window not found".to_owned())?;
-            let renderer = async_runtime::block_on(ScreenRenderer::new(window))
-                .map_err(|error| error.to_string())?;
-            app.manage(ScreenShareRuntime::new(Arc::new(renderer)));
+            #[cfg(not(target_os = "linux"))]
+            {
+                let window = app
+                    .get_webview_window("main")
+                    .ok_or_else(|| "main window not found".to_owned())?;
+                let renderer = async_runtime::block_on(ScreenRenderer::new(window))
+                    .map_err(|error| error.to_string())?;
+                app.manage(ScreenShareRuntime::new(Arc::new(renderer)));
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                app.manage(ScreenShareRuntime::new());
+            }
 
             let (device_id, device_name) = launch_args();
             if let Some(device_id) = device_id {
@@ -168,6 +236,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {
+            #[cfg(not(target_os = "linux"))]
             if let RunEvent::WindowEvent {
                 event: WindowEvent::Resized(size),
                 ..

@@ -2,15 +2,33 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { type RefObject, useCallback, useEffect, useState } from "react"
 
+interface ScreenFrameEvent {
+  jpeg: number[]
+}
+
+type ViewerMode = "gpu" | "webview"
+
 export function useScreenShare(
   deviceId: string | undefined,
   deviceName: string | undefined,
   viewportRef: RefObject<HTMLElement | null>
 ) {
+  const [viewerMode, setViewerMode] = useState<ViewerMode>("gpu")
+  const [frameUrl, setFrameUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error" | "stopped">(
     "idle"
   )
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void invoke<string>("screen_viewer_mode")
+      .then((mode) => {
+        setViewerMode(mode === "webview" ? "webview" : "gpu")
+      })
+      .catch(() => {
+        setViewerMode("gpu")
+      })
+  }, [])
 
   const stop = useCallback(async () => {
     try {
@@ -22,6 +40,10 @@ export function useScreenShare(
   }, [])
 
   const syncViewport = useCallback(() => {
+    if (viewerMode !== "gpu") {
+      return
+    }
+
     const element = viewportRef.current
     if (!element) {
       return
@@ -37,7 +59,7 @@ export function useScreenShare(
         height: Math.round(rect.height * scale),
       },
     }).catch(() => undefined)
-  }, [viewportRef])
+  }, [viewportRef, viewerMode])
 
   useEffect(() => {
     if (!deviceId) {
@@ -45,6 +67,7 @@ export function useScreenShare(
     }
 
     let active = true
+    let objectUrl: string | null = null
     const unlisteners: UnlistenFn[] = []
 
     async function start() {
@@ -74,6 +97,24 @@ export function useScreenShare(
     }
 
     async function bindListeners() {
+      if (viewerMode === "webview") {
+        unlisteners.push(
+          await listen<ScreenFrameEvent>("screen-frame", (event) => {
+            const bytes = new Uint8Array(event.payload.jpeg)
+            const blob = new Blob([bytes], { type: "image/jpeg" })
+            const nextUrl = URL.createObjectURL(blob)
+            setFrameUrl((current) => {
+              if (current) {
+                URL.revokeObjectURL(current)
+              }
+              return nextUrl
+            })
+            objectUrl = nextUrl
+            setStatus("live")
+          })
+        )
+      }
+
       unlisteners.push(
         await listen<string>("screen-error", (event) => {
           setStatus("error")
@@ -94,11 +135,18 @@ export function useScreenShare(
       for (const unlisten of unlisteners) {
         unlisten()
       }
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
       void invoke("stop_screen_share").catch(() => undefined)
     }
-  }, [deviceId, deviceName, syncViewport])
+  }, [deviceId, deviceName, syncViewport, viewerMode])
 
   useEffect(() => {
+    if (viewerMode !== "gpu") {
+      return
+    }
+
     syncViewport()
 
     const observer = new ResizeObserver(() => {
@@ -116,7 +164,7 @@ export function useScreenShare(
       observer.disconnect()
       window.removeEventListener("resize", syncViewport)
     }
-  }, [syncViewport, viewportRef])
+  }, [syncViewport, viewportRef, viewerMode])
 
-  return { status, error, stop }
+  return { viewerMode, frameUrl, status, error, stop }
 }
