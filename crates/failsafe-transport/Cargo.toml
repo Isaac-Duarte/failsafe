@@ -20,7 +20,7 @@ iroh-blobs = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "time", "io-util"] }
+tokio = { workspace = true, features = ["sync", "time", "io-util", "rt"] }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]

@@ -7,7 +7,10 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer_address::PeerAddressBook;
 use tempfile::TempDir;
 
+use tokio::sync::mpsc;
+
 use super::{IrohConfig, IrohTransport};
+use crate::iroh::stream::read_exact;
 use crate::transport::Transport;
 
 async fn wait_for_connection(transport: &IrohTransport, peer: DeviceId) -> Result<(), String> {
@@ -245,4 +248,86 @@ async fn blob_transfer_roundtrips_file_collection() {
         .expect("fetch collection on b");
 
     assert_eq!(fetched, files);
+}
+
+#[tokio::test]
+async fn shell_stream_opens_between_peers() {
+    let temp = TempDir::new().expect("tempdir");
+    let device_a = DeviceId::new();
+    let device_b = DeviceId::new();
+
+    let transport_a = IrohTransport::start(IrohConfig {
+        device_id: device_a,
+        secret_key_path: temp.path().join("shell-a.key"),
+        blob_store_path: temp.path().join("shell-blobs-a"),
+        address_book: PeerAddressBook::default(),
+    })
+    .await
+    .expect("start transport a");
+
+    let mut addresses_b = HashMap::new();
+    addresses_b.insert(device_a, transport_a.public_key().to_string());
+
+    let transport_b = IrohTransport::start(IrohConfig {
+        device_id: device_b,
+        secret_key_path: temp.path().join("shell-b.key"),
+        blob_store_path: temp.path().join("shell-blobs-b"),
+        address_book: PeerAddressBook::from_map(addresses_b),
+    })
+    .await
+    .expect("start transport b");
+
+    let (acceptor_tx, mut acceptor_rx) = mpsc::channel(1);
+    transport_b.set_shell_acceptor(acceptor_tx).await;
+
+    let mut addresses_a = HashMap::new();
+    addresses_a.insert(device_b, transport_b.public_key().to_string());
+    transport_a
+        .update_peers(PeerAddressBook::from_map(addresses_a))
+        .expect("update peer addresses on a");
+
+    wait_for_connection(&transport_a, device_b)
+        .await
+        .expect("a connects to b");
+    wait_for_connection(&transport_b, device_a)
+        .await
+        .expect("b connects to a");
+
+    let mut client_session = transport_a
+        .open_shell_stream(device_b, 24, 80)
+        .await
+        .expect("open shell stream");
+
+    let mut host_session = tokio::time::timeout(Duration::from_secs(10), acceptor_rx.recv())
+        .await
+        .expect("shell accept timeout")
+        .expect("shell accept channel open");
+
+    assert_eq!(host_session.from, device_a);
+    assert_eq!(host_session.rows, 24);
+    assert_eq!(host_session.cols, 80);
+
+    client_session
+        .send
+        .write_all(b"ping")
+        .await
+        .expect("write shell payload");
+
+    let mut host_buf = [0u8; 4];
+    read_exact(&mut host_session.recv, &mut host_buf)
+        .await
+        .expect("read shell payload on host");
+    assert_eq!(&host_buf, b"ping");
+
+    host_session
+        .send
+        .write_all(b"pong")
+        .await
+        .expect("write shell response");
+
+    let mut client_buf = [0u8; 4];
+    read_exact(&mut client_session.recv, &mut client_buf)
+        .await
+        .expect("read shell response on client");
+    assert_eq!(&client_buf, b"pong");
 }

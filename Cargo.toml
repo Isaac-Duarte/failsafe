@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/failsafe-clipboard",
     "crates/failsafe-core",
+    "crates/failsafe-shell",
     "crates/failsafe",
     "crates/failsafe-server",
     "crates/failsafe-transport",
@@ -24,6 +25,7 @@ panic = "abort"
 async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
+failsafe-shell = { path = "crates/failsafe-shell" }
 failsafe = { path = "crates/failsafe" }
 failsafe-server = { path = "crates/failsafe-server" }
 failsafe-transport = { path = "crates/failsafe-transport" }
@@ -55,3 +57,6 @@ dotenvy = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 http-body-util = "0.1"
 tower = "0.5"
+portable-pty = "0.9"
+crossterm = "0.29"
+inquire = "0.9"

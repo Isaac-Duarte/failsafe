@@ -9,10 +9,10 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
-use crate::codec;
 use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
 use crate::iroh::protocol::resolve_device;
+use crate::iroh::stream::{SharedShellAcceptor, handle_incoming_bi_stream};
 use crate::transport::TransportError;
 
 #[derive(Debug)]
@@ -60,11 +60,19 @@ pub fn spawn_dial_manager(
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    shell_acceptor: SharedShellAcceptor,
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
-        if let Err(error) =
-            run_dial_manager(endpoint, pool, inbox, address_state, shutdown_rx).await
+        if let Err(error) = run_dial_manager(
+            endpoint,
+            pool,
+            inbox,
+            address_state,
+            shell_acceptor,
+            shutdown_rx,
+        )
+        .await
         {
             warn!("iroh dial manager exited with error: {error}");
         }
@@ -81,6 +89,7 @@ async fn run_dial_manager(
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    shell_acceptor: SharedShellAcceptor,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), TransportError> {
     let endpoint = Arc::new(endpoint);
@@ -99,6 +108,7 @@ async fn run_dial_manager(
                     pool.clone(),
                     &address_state,
                     inbox.clone(),
+                    shell_acceptor.clone(),
                 ).await;
             }
         }
@@ -112,6 +122,7 @@ async fn dial_peers(
     pool: Arc<ConnectionPool>,
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
+    shell_acceptor: SharedShellAcceptor,
 ) {
     let peers_to_dial: Vec<(DeviceId, String)> = match address_state.read() {
         Ok(state) => state
@@ -142,6 +153,7 @@ async fn dial_peers(
                     pool.clone(),
                     address_state,
                     inbox.clone(),
+                    shell_acceptor.clone(),
                 )
                 .await
                 {
@@ -169,10 +181,17 @@ async fn register_dialed_connection(
     pool: Arc<ConnectionPool>,
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
+    shell_acceptor: SharedShellAcceptor,
 ) -> Result<(), TransportError> {
     let device = register_outbound_connection(connection, address_state)?;
     pool.insert(device, connection.clone()).await;
-    spawn_stream_handler(connection.clone(), device, pool, inbox);
+    spawn_stream_handler(
+        connection.clone(),
+        device,
+        pool,
+        inbox,
+        shell_acceptor,
+    );
     Ok(())
 }
 
@@ -181,24 +200,16 @@ fn spawn_stream_handler(
     device: DeviceId,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
+    shell_acceptor: SharedShellAcceptor,
 ) {
     tokio::spawn(async move {
         loop {
             match connection.accept_bi().await {
-                Ok((_send, mut recv)) => {
+                Ok((send, recv)) => {
                     let inbox = inbox.clone();
+                    let shell_acceptor = shell_acceptor.clone();
                     tokio::spawn(async move {
-                        match recv.read_to_end(16 * 1024 * 1024).await {
-                            Ok(bytes) => match codec::decode(&bytes) {
-                                Ok(message) => {
-                                    if inbox.send(message).await.is_err() {
-                                        debug!("inbox closed while delivering message");
-                                    }
-                                }
-                                Err(error) => warn!("failed to decode inbound frame: {error}"),
-                            },
-                            Err(error) => warn!("failed to read inbound stream: {error}"),
-                        }
+                        handle_incoming_bi_stream(send, recv, device, inbox, shell_acceptor).await;
                     });
                 }
                 Err(error) => {

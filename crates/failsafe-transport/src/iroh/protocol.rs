@@ -7,9 +7,9 @@ use iroh::protocol::{AcceptError, ProtocolHandler};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::codec;
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
+use crate::iroh::stream::{SharedShellAcceptor, handle_incoming_bi_stream};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,7 @@ pub struct FailsafeProtocol {
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    shell_acceptor: SharedShellAcceptor,
 }
 
 impl FailsafeProtocol {
@@ -24,11 +25,13 @@ impl FailsafeProtocol {
         pool: Arc<ConnectionPool>,
         inbox: mpsc::Sender<FeatureMessage>,
         address_state: SharedAddressState,
+        shell_acceptor: SharedShellAcceptor,
     ) -> Self {
         Self {
             pool,
             inbox,
             address_state,
+            shell_acceptor,
         }
     }
 }
@@ -49,20 +52,11 @@ impl ProtocolHandler for FailsafeProtocol {
 
         loop {
             match connection.accept_bi().await {
-                Ok((_send, mut recv)) => {
+                Ok((send, recv)) => {
                     let inbox = self.inbox.clone();
+                    let shell_acceptor = self.shell_acceptor.clone();
                     tokio::spawn(async move {
-                        match recv.read_to_end(16 * 1024 * 1024).await {
-                            Ok(bytes) => match codec::decode(&bytes) {
-                                Ok(message) => {
-                                    if inbox.send(message).await.is_err() {
-                                        debug!("inbox closed while delivering message");
-                                    }
-                                }
-                                Err(error) => warn!("failed to decode inbound frame: {error}"),
-                            },
-                            Err(error) => warn!("failed to read inbound stream: {error}"),
-                        }
+                        handle_incoming_bi_stream(send, recv, device, inbox, shell_acceptor).await;
                     });
                 }
                 Err(error) => {

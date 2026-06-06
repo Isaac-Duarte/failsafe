@@ -11,11 +11,12 @@ use crate::message::FeatureMessage;
 #[serde(rename_all = "snake_case")]
 pub enum FeatureId {
     Clipboard,
+    Shell,
 }
 
 impl FeatureId {
     pub fn all() -> &'static [FeatureId] {
-        &[FeatureId::Clipboard]
+        &[FeatureId::Clipboard, FeatureId::Shell]
     }
 }
 
@@ -23,6 +24,7 @@ impl fmt::Display for FeatureId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Clipboard => write!(f, "clipboard"),
+            Self::Shell => write!(f, "shell"),
         }
     }
 }
@@ -37,6 +39,7 @@ impl FromStr for FeatureId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "clipboard" => Ok(Self::Clipboard),
+            "shell" => Ok(Self::Shell),
             other => Err(UnknownFeatureId(other.to_owned())),
         }
     }

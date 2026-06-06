@@ -20,7 +20,9 @@ use crate::iroh::address::{AddressState, SharedAddressState, update_address_stat
 use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
+use crate::iroh::stream::{ShellAcceptor, ShellSession, SharedShellAcceptor};
 use crate::peer_updater::PeerAddressUpdater;
+use crate::shell;
 use crate::transport::{Transport, TransportError};
 
 pub struct IrohTransport {
@@ -32,6 +34,7 @@ pub struct IrohTransport {
     router: Option<Router>,
     blob_transfer: Arc<IrohBlobTransfer>,
     address_state: SharedAddressState,
+    shell_acceptor: SharedShellAcceptor,
 }
 
 impl IrohTransport {
@@ -62,8 +65,14 @@ impl IrohTransport {
         let blob_transfer =
             IrohBlobTransfer::new(blob_store, endpoint.clone(), address_state.clone());
 
-        let failsafe_protocol =
-            FailsafeProtocol::new(pool.clone(), inbox_tx.clone(), address_state.clone());
+        let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
+
+        let failsafe_protocol = FailsafeProtocol::new(
+            pool.clone(),
+            inbox_tx.clone(),
+            address_state.clone(),
+            shell_acceptor.clone(),
+        );
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
             .accept(BLOBS_ALPN, blobs)
@@ -75,6 +84,7 @@ impl IrohTransport {
             pool.clone(),
             inbox_tx,
             address_state.clone(),
+            shell_acceptor.clone(),
         );
 
         Ok(Self {
@@ -86,6 +96,7 @@ impl IrohTransport {
             router: Some(router),
             blob_transfer,
             address_state,
+            shell_acceptor,
         })
     }
 
@@ -107,6 +118,45 @@ impl IrohTransport {
 
     pub fn update_peers(&self, book: PeerAddressBook) -> Result<(), TransportError> {
         update_address_state(&self.address_state, book)
+    }
+
+    pub async fn set_shell_acceptor(&self, acceptor: ShellAcceptor) {
+        *self.shell_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_shell_acceptor(&self) {
+        *self.shell_acceptor.lock().await = None;
+    }
+
+    pub async fn open_shell_stream(
+        &self,
+        peer: DeviceId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<ShellSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = shell::build_shell_init(rows, cols);
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(ShellSession {
+            from: peer,
+            rows,
+            cols,
+            send,
+            recv,
+        })
     }
 }
 

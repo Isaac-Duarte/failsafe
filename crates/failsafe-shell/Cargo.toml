@@ -1,0 +1,11 @@
+[package]
+name = "failsafe-shell"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+failsafe-core.workspace = true
+portable-pty.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync", "rt"] }
+tracing.workspace = true

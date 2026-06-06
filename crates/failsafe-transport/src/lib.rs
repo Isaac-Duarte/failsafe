@@ -1,5 +1,6 @@
 pub mod blobs;
 pub mod codec;
+pub mod shell;
 #[cfg(any(test, feature = "test-util"))]
 pub mod mock;
 pub mod peer_updater;

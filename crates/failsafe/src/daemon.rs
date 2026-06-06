@@ -18,8 +18,10 @@ use failsafe_transport::transport::Transport;
 use tracing::info;
 
 use crate::config::Config;
+use crate::control_server::ControlServer;
 use crate::error::DaemonError;
 use crate::server::ServerClient;
+use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
 
 pub struct TransportBundle {
@@ -27,6 +29,7 @@ pub struct TransportBundle {
     pub peer_updater: Arc<dyn PeerAddressUpdater>,
     pub blob_transfer: Option<Arc<dyn BlobTransfer>>,
     pub iroh_public_key: Option<String>,
+    pub iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
 }
 
 pub struct Daemon {
@@ -38,6 +41,7 @@ pub struct Daemon {
     local_features: HashSet<FeatureId>,
     device_name: String,
     iroh_public_key: Option<String>,
+    iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -52,6 +56,7 @@ pub struct DaemonBuilder {
     iroh_public_key: Option<String>,
     blob_transfer: Option<Arc<dyn BlobTransfer>>,
     clipboard_limits: ClipboardLimits,
+    iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
 }
 
 impl DaemonBuilder {
@@ -66,6 +71,7 @@ impl DaemonBuilder {
             iroh_public_key: None,
             blob_transfer: None,
             clipboard_limits: ClipboardLimits::default(),
+            iroh: None,
         }
     }
 
@@ -119,6 +125,11 @@ impl DaemonBuilder {
         self
     }
 
+    pub fn iroh(mut self, iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>) -> Self {
+        self.iroh = iroh;
+        self
+    }
+
     pub fn build(self) -> Result<Daemon, DaemonError> {
         let transport = self
             .transport
@@ -149,6 +160,7 @@ impl DaemonBuilder {
             local_features: self.enabled_features,
             device_name: self.device_name,
             iroh_public_key: self.iroh_public_key,
+            iroh: self.iroh,
             config_path: None,
             config: None,
         })
@@ -181,7 +193,8 @@ impl Daemon {
             .peers(peers)
             .enable_features(config.enabled_feature_set())
             .device_name(config.device_name.clone())
-            .iroh_public_key(bundle.iroh_public_key);
+            .iroh_public_key(bundle.iroh_public_key)
+            .iroh(bundle.iroh.clone());
 
         if let Some(client) = server_client {
             builder = builder.server_client(client);
@@ -281,6 +294,23 @@ impl Daemon {
 
         self.registry.start_enabled().await?;
 
+        let mut shell_sessions = None;
+        if self.local_features.contains(&FeatureId::Shell) {
+            if let Some(iroh) = self.iroh.clone() {
+                shell_sessions = Some(start_shell_acceptor(iroh).await);
+            }
+        }
+
+        let control_server = self
+            .iroh
+            .clone()
+            .map(|iroh| ControlServer::new(iroh, self.local_features.clone()))
+            .transpose()?;
+        let control_listener = match control_server.as_ref() {
+            Some(server) => Some(server.bind().await?),
+            None => None,
+        };
+
         let mut sync_interval = tokio::time::interval(Duration::from_secs(30));
         sync_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -289,6 +319,26 @@ impl Daemon {
                 result = self.transport.recv() => {
                     let message = result?;
                     self.registry.dispatch(message).await?;
+                }
+                session = async {
+                    match shell_sessions.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Some(session) = session {
+                        tokio::spawn(handle_incoming_shell(session));
+                    }
+                }
+                accepted = async {
+                    match control_listener.as_ref() {
+                        Some(listener) => listener.accept().await.ok(),
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let (Some(server), Some((stream, _))) = (control_server.as_ref(), accepted) {
+                        server.handle_connection(stream).await;
+                    }
                 }
                 _ = sync_interval.tick() => {
                     if let Err(error) = self.heartbeat_with_server().await {
@@ -307,6 +357,10 @@ impl Daemon {
                     break;
                 }
             }
+        }
+
+        if let Some(iroh) = &self.iroh {
+            stop_shell_acceptor(iroh).await;
         }
 
         self.shutdown().await
@@ -347,7 +401,7 @@ pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle,
         .resolved_blob_store_path()
         .ok_or_else(|| DaemonError::Config("could not determine blob store path".to_owned()))?;
 
-    let transport = Arc::new(
+    let iroh = Arc::new(
         failsafe_transport::iroh::IrohTransport::start(failsafe_transport::iroh::IrohConfig {
             device_id: config.device_id,
             secret_key_path,
@@ -356,15 +410,17 @@ pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle,
         })
         .await?,
     );
-    let iroh_public_key = transport.public_key_hex();
-    let peer_updater = transport.clone();
-    let blob_transfer = Some(transport.blob_transfer());
+    let iroh_public_key = iroh.public_key_hex();
+    let peer_updater = iroh.clone();
+    let blob_transfer = Some(iroh.blob_transfer());
+    let transport: Arc<dyn Transport> = iroh.clone();
 
     Ok(TransportBundle {
         transport,
         peer_updater,
         blob_transfer,
         iroh_public_key: Some(iroh_public_key),
+        iroh: Some(iroh),
     })
 }
 
@@ -384,6 +440,7 @@ pub async fn create_test_transport_bundle(
         peer_updater,
         blob_transfer: None,
         iroh_public_key: None,
+        iroh: None,
     }
 }
 

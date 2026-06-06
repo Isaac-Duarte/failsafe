@@ -67,6 +67,14 @@ pub enum Command {
         #[command(subcommand)]
         command: DevicesCommand,
     },
+    /// Open an interactive shell on a paired device.
+    Shell {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device name or ID. Omit for interactive selection.
+        device: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
