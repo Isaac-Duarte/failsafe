@@ -21,7 +21,7 @@ n0-future = { version = "0.3", optional = true }
 rand = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "sync", "time", "io-util", "rt"] }
+tokio = { workspace = true, features = ["macros", "sync", "time", "io-util", "rt", "fs"] }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]

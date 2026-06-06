@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use tokio::sync::mpsc;
+use tokio::task::JoinSet;
+
 use async_trait::async_trait;
 use bytes::Bytes;
 use failsafe_core::device::DeviceId;
@@ -168,70 +171,78 @@ impl BlobTransfer for IrohBlobTransfer {
         sources: &[(String, PathBuf)],
         progress: &mut (dyn FnMut(BlobProgress) + Send),
     ) -> Result<(BlobHash, Vec<ImportedFile>), BlobError> {
-        let total_bytes: u64 = sources
+        if sources.is_empty() {
+            return Err(BlobError::Store("no import sources".to_owned()));
+        }
+
+        let mut states: Vec<FileImportState> = sources
             .iter()
-            .map(|(_, path)| {
-                std::fs::metadata(path)
+            .map(|(name, path)| {
+                let size = std::fs::metadata(path)
                     .map(|meta| meta.len())
-                    .unwrap_or_default()
-            })
-            .sum();
-        let mut bytes_done = 0u64;
-        let mut imported = Vec::with_capacity(sources.len());
-        let mut entries = Vec::with_capacity(sources.len());
-
-        for (name, path) in sources {
-            progress(BlobProgress {
-                bytes_done,
-                bytes_total: total_bytes,
-                current_file: Some(name.clone()),
-            });
-
-            let import = self.store.add_path_with_opts(AddPathOptions {
-                path: path.clone(),
-                mode: ImportMode::TryReference,
-                format: BlobFormat::Raw,
-            });
-            let mut stream = import.stream().await;
-            let mut file_size = 0u64;
-            let temp_tag = loop {
-                let Some(item) = stream.next().await else {
-                    return Err(BlobError::Store(format!(
-                        "import stream ended before completion for {}",
-                        path.display()
-                    )));
-                };
-                match item {
-                    AddProgressItem::Size(size) => file_size = size,
-                    AddProgressItem::CopyProgress(offset) => {
-                        progress(BlobProgress {
-                            bytes_done: bytes_done.saturating_add(offset),
-                            bytes_total: total_bytes,
-                            current_file: Some(name.clone()),
-                        });
-                    }
-                    AddProgressItem::Error(cause) => {
-                        return Err(BlobError::Store(format!(
-                            "failed to import {}: {cause}",
-                            path.display()
-                        )));
-                    }
-                    AddProgressItem::Done(tag) => break tag,
-                    _ => {}
+                    .unwrap_or_default();
+                FileImportState {
+                    name: name.clone(),
+                    size,
+                    offset: 0,
+                    done: false,
                 }
-            };
+            })
+            .collect();
+        let total_bytes: u64 = states.iter().map(|state| state.size).sum();
 
-            bytes_done = bytes_done.saturating_add(file_size);
-            entries.push((name.clone(), temp_tag.hash()));
-            imported.push(ImportedFile {
-                name: name.clone(),
-                size: file_size,
+        progress(aggregate_import_progress(&states, total_bytes));
+
+        let (progress_tx, mut progress_rx) = mpsc::channel(256);
+        let (result_tx, mut result_rx) = mpsc::channel(sources.len());
+
+        let mut join_set = JoinSet::new();
+        for (index, (name, path)) in sources.iter().enumerate() {
+            let store = self.store.clone();
+            let name = name.clone();
+            let path = path.clone();
+            let progress_tx = progress_tx.clone();
+            let result_tx = result_tx.clone();
+            join_set.spawn(async move {
+                let result = import_source_file(store, name, path, index, progress_tx).await;
+                let _ = result_tx.send((index, result)).await;
             });
-            progress(BlobProgress {
-                bytes_done,
-                bytes_total: total_bytes,
-                current_file: Some(name.clone()),
-            });
+        }
+        drop(progress_tx);
+        drop(result_tx);
+
+        let mut results: Vec<Option<(String, Hash, u64)>> = vec![None; sources.len()];
+        let mut completed = 0usize;
+
+        while completed < sources.len() {
+            tokio::select! {
+                Some((index, offset)) = progress_rx.recv() => {
+                    states[index].offset = offset;
+                    progress(aggregate_import_progress(&states, total_bytes));
+                }
+                Some((index, result)) = result_rx.recv() => {
+                    match result {
+                        Ok((name, hash, size)) => {
+                            states[index].done = true;
+                            states[index].offset = size;
+                            results[index] = Some((name, hash, size));
+                            completed += 1;
+                            progress(aggregate_import_progress(&states, total_bytes));
+                        }
+                        Err(error) => {
+                            join_set.abort_all();
+                            return Err(error);
+                        }
+                    }
+                }
+                else => break,
+            }
+        }
+
+        while join_set.join_next().await.is_some() {}
+
+        if completed != sources.len() {
+            return Err(BlobError::Store("import ended before all files completed".to_owned()));
         }
 
         progress(BlobProgress {
@@ -239,6 +250,14 @@ impl BlobTransfer for IrohBlobTransfer {
             bytes_total: total_bytes,
             current_file: None,
         });
+
+        let mut entries = Vec::with_capacity(sources.len());
+        let mut imported = Vec::with_capacity(sources.len());
+        for result in results.into_iter().flatten() {
+            let (name, hash, size) = result;
+            entries.push((name.clone(), hash));
+            imported.push(ImportedFile { name, size });
+        }
 
         let collection = Collection::from_iter(entries);
         let root = collection
@@ -433,4 +452,71 @@ impl BlobTransfer for IrohBlobTransfer {
             local.is_complete(),
         ))
     }
+}
+
+struct FileImportState {
+    name: String,
+    size: u64,
+    offset: u64,
+    done: bool,
+}
+
+fn aggregate_import_progress(states: &[FileImportState], total_bytes: u64) -> BlobProgress {
+    let mut bytes_done = 0u64;
+    let mut current_file = None;
+    for state in states {
+        if state.done {
+            bytes_done = bytes_done.saturating_add(state.size);
+        } else {
+            bytes_done = bytes_done.saturating_add(state.offset);
+            if state.offset < state.size && current_file.is_none() {
+                current_file = Some(state.name.clone());
+            }
+        }
+    }
+    BlobProgress {
+        bytes_done,
+        bytes_total: total_bytes,
+        current_file,
+    }
+}
+
+async fn import_source_file(
+    store: FsStore,
+    name: String,
+    path: PathBuf,
+    index: usize,
+    progress_tx: mpsc::Sender<(usize, u64)>,
+) -> Result<(String, Hash, u64), BlobError> {
+    let import = store.add_path_with_opts(AddPathOptions {
+        path: path.clone(),
+        mode: ImportMode::TryReference,
+        format: BlobFormat::Raw,
+    });
+    let mut stream = import.stream().await;
+    let mut file_size = 0u64;
+    let temp_tag = loop {
+        let Some(item) = stream.next().await else {
+            return Err(BlobError::Store(format!(
+                "import stream ended before completion for {}",
+                path.display()
+            )));
+        };
+        match item {
+            AddProgressItem::Size(size) => file_size = size,
+            AddProgressItem::CopyProgress(offset) => {
+                let _ = progress_tx.send((index, offset)).await;
+            }
+            AddProgressItem::Error(cause) => {
+                return Err(BlobError::Store(format!(
+                    "failed to import {}: {cause}",
+                    path.display()
+                )));
+            }
+            AddProgressItem::Done(tag) => break tag,
+            _ => {}
+        }
+    };
+
+    Ok((name, temp_tag.hash(), file_size))
 }

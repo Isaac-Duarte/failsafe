@@ -154,8 +154,10 @@ pub async fn send(
                     SendPhase::Sending => "Sending".to_owned(),
                     SendPhase::WaitingForAck => "Waiting for receiver".to_owned(),
                 };
-                progress.set_length(bytes_total.max(1));
-                progress.set_position(bytes_done.min(bytes_total.max(1)));
+                if bytes_total > 0 {
+                    progress.set_length(bytes_total);
+                    progress.set_position(bytes_done.min(bytes_total));
+                }
                 progress.set_message(label);
             }
             ControlEvent::SendComplete { .. } => {

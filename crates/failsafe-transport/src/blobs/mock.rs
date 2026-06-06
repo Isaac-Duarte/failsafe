@@ -94,7 +94,6 @@ impl BlobTransfer for MockBlobTransfer {
         sources: &[(String, PathBuf)],
         progress: &mut (dyn FnMut(BlobProgress) + Send),
     ) -> Result<(BlobHash, Vec<ImportedFile>), BlobError> {
-        let mut files = Vec::with_capacity(sources.len());
         let total_bytes: u64 = sources
             .iter()
             .map(|(_, path)| {
@@ -103,19 +102,32 @@ impl BlobTransfer for MockBlobTransfer {
                     .unwrap_or_default()
             })
             .sum();
-        let mut bytes_done = 0u64;
 
+        let mut handles = Vec::with_capacity(sources.len());
         for (name, path) in sources {
-            let data = tokio::fs::read(path)
+            let name = name.clone();
+            let path = path.clone();
+            handles.push(tokio::spawn(async move {
+                let data = tokio::fs::read(&path)
+                    .await
+                    .map_err(|error| BlobError::Store(error.to_string()))?;
+                Ok::<_, BlobError>((name, data))
+            }));
+        }
+
+        let mut files = Vec::with_capacity(sources.len());
+        let mut bytes_done = 0u64;
+        for handle in handles {
+            let (name, data) = handle
                 .await
-                .map_err(|error| BlobError::Store(error.to_string()))?;
+                .map_err(|error| BlobError::Store(format!("import task failed: {error}")))??;
             bytes_done = bytes_done.saturating_add(data.len() as u64);
             progress(BlobProgress {
                 bytes_done,
                 bytes_total: total_bytes,
                 current_file: Some(name.clone()),
             });
-            files.push((name.clone(), data));
+            files.push((name, data));
         }
 
         let imported: Vec<ImportedFile> = files

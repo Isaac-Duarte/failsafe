@@ -391,11 +391,13 @@ impl ControlServer {
                 return Err("transfer cancelled".to_owned());
             }
 
+            let total_bytes = payload.entries.iter().map(|entry| entry.size).sum::<u64>();
+
             let _ = progress_tx
                 .send(ControlEvent::SendProgress {
                     phase: SendPhase::Sending,
-                    bytes_done: 0,
-                    bytes_total: 0,
+                    bytes_done: total_bytes,
+                    bytes_total: total_bytes,
                     current_file: None,
                 })
                 .await;
@@ -426,8 +428,8 @@ impl ControlServer {
             let _ = progress_tx
                 .send(ControlEvent::SendProgress {
                     phase: SendPhase::WaitingForAck,
-                    bytes_done: 0,
-                    bytes_total: 0,
+                    bytes_done: total_bytes,
+                    bytes_total: total_bytes,
                     current_file: None,
                 })
                 .await;
