@@ -4,7 +4,6 @@ use failsafe_core::api::{
     DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
 };
 use failsafe_core::feature::FeatureId;
-use failsafe_screen::{ScreenFramePayload, ScreenQualityPreset};
 use specta::Types;
 use specta_typescript::Typescript;
 
@@ -23,9 +22,7 @@ fn main() {
         .register::<PairingCreateResponse>()
         .register::<PairingRedeemRequest>()
         .register::<ApiError>()
-        .register::<FeatureId>()
-        .register::<ScreenQualityPreset>()
-        .register::<ScreenFramePayload>();
+        .register::<FeatureId>();
 
     let output = concat!(env!("CARGO_MANIFEST_DIR"), "/../../failsafe-ui/src/lib/bindings.ts");
     Typescript::default()

@@ -7,7 +7,6 @@ I want to have software where somebody can download it on multiple machines and 
 - Notification Syncing
 - Shell Spawning
 - Laptop as monitor
-- Screen sharing
 - Remote desktop
 - TCP Reverse Proxy
 - Virtual Shared Drive

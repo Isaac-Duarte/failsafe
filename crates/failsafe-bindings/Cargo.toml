@@ -10,7 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 failsafe-core.workspace = true
-failsafe-screen.workspace = true
 specta.workspace = true
 specta-serde.workspace = true
 specta-typescript.workspace = true

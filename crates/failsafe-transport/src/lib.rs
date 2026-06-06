@@ -5,7 +5,6 @@ pub mod mock;
 pub mod peer_updater;
 pub mod router;
 pub mod port;
-pub mod screen;
 pub mod shell;
 pub mod transport;
 

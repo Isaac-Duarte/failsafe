@@ -6,7 +6,6 @@
   },
   "workspaces": [
     "failsafe-ui",
-    "failsafe-web-ui",
-    "failsafe-desktop-ui"
+    "failsafe-web-ui"
   ]
 }

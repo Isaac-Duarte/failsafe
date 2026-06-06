@@ -82,7 +82,5 @@ export type {
   FeatureId,
   PairingCreateResponse,
   PairingRedeemRequest,
-  ScreenFramePayload,
-  ScreenQualityPreset,
 } from "./lib/bindings"
 export { cn } from "./lib/utils"

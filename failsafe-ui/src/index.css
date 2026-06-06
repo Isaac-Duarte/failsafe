@@ -5,7 +5,6 @@
 
 @source "./";
 @source "../../failsafe-web-ui/src";
-@source "../../failsafe-desktop-ui/src";
 
 @custom-variant dark (&:is(.dark *));
 

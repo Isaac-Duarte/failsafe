@@ -11,7 +11,7 @@ use tracing::{debug, warn};
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
 use crate::iroh::stream::{
-    SharedPortAcceptor, SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
+    SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
 };
 use crate::transport::TransportError;
 
@@ -22,7 +22,6 @@ pub struct FailsafeProtocol {
     address_state: SharedAddressState,
     local_endpoint_id: PublicKey,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
 }
 
@@ -33,7 +32,6 @@ impl FailsafeProtocol {
         address_state: SharedAddressState,
         local_endpoint_id: PublicKey,
         shell_acceptor: SharedShellAcceptor,
-        screen_acceptor: SharedScreenAcceptor,
         port_acceptor: SharedPortAcceptor,
     ) -> Self {
         Self {
@@ -42,7 +40,6 @@ impl FailsafeProtocol {
             address_state,
             local_endpoint_id,
             shell_acceptor,
-            screen_acceptor,
             port_acceptor,
         }
     }
@@ -72,7 +69,6 @@ impl ProtocolHandler for FailsafeProtocol {
                 Ok((send, recv)) => {
                     let inbox = self.inbox.clone();
                     let shell_acceptor = self.shell_acceptor.clone();
-                    let screen_acceptor = self.screen_acceptor.clone();
                     let port_acceptor = self.port_acceptor.clone();
                     tokio::spawn(async move {
                         handle_incoming_bi_stream(
@@ -82,7 +78,6 @@ impl ProtocolHandler for FailsafeProtocol {
                             inbox,
                             port_acceptor,
                             shell_acceptor,
-                            screen_acceptor,
                         )
                         .await;
                     });

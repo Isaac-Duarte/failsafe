@@ -12,11 +12,6 @@ export const KNOWN_FEATURES = [
     description: "Accept remote terminal sessions from other devices",
   },
   {
-    id: "screen_share",
-    label: "Screen Share",
-    description: "Allow other devices to view this screen",
-  },
-  {
     id: "port_forward",
     label: "Port Forward",
     description: "Accept forwarded TCP connections from other devices",

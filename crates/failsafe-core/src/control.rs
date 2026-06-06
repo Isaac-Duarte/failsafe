@@ -29,9 +29,6 @@ pub enum ControlRequest {
         rows: u16,
         cols: u16,
     },
-    OpenScreenShare {
-        target: DeviceId,
-    },
     OpenPortForward {
         target: DeviceId,
         local_port: u16,
@@ -114,29 +111,5 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {
     if path.exists() {
         std::fs::remove_file(path)?;
     }
-    Ok(())
-}
-
-pub async fn read_framed_payload(stream: &mut UnixStream) -> Result<Vec<u8>, ControlError> {
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-    if len > 16 * 1024 * 1024 {
-        return Err(ControlError::Config("screen frame too large".to_owned()));
-    }
-    let mut payload = vec![0u8; len];
-    stream.read_exact(&mut payload).await?;
-    Ok(payload)
-}
-
-pub async fn write_framed_payload(
-    stream: &mut UnixStream,
-    payload: &[u8],
-) -> Result<(), ControlError> {
-    let len = u32::try_from(payload.len())
-        .map_err(|_| ControlError::Config("screen frame too large".to_owned()))?;
-    stream.write_all(&len.to_be_bytes()).await?;
-    stream.write_all(payload).await?;
-    stream.flush().await?;
     Ok(())
 }

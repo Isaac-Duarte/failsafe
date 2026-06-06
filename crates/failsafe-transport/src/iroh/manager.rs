@@ -13,7 +13,7 @@ use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
 use crate::iroh::protocol::resolve_device;
 use crate::iroh::stream::{
-    SharedPortAcceptor, SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
+    SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
 };
 use crate::transport::TransportError;
 
@@ -63,7 +63,6 @@ pub fn spawn_dial_manager(
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -74,7 +73,6 @@ pub fn spawn_dial_manager(
             inbox,
             address_state,
             shell_acceptor,
-            screen_acceptor,
             port_acceptor,
             shutdown_rx,
         )
@@ -96,7 +94,6 @@ async fn run_dial_manager(
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), TransportError> {
@@ -117,7 +114,6 @@ async fn run_dial_manager(
                     &address_state,
                     inbox.clone(),
                     shell_acceptor.clone(),
-                    screen_acceptor.clone(),
                     port_acceptor.clone(),
                 ).await;
             }
@@ -133,7 +129,6 @@ async fn dial_peers(
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) {
     let peers_to_dial: Vec<(DeviceId, String)> = match address_state.read() {
@@ -175,7 +170,6 @@ async fn dial_peers(
                     address_state,
                     inbox.clone(),
                     shell_acceptor.clone(),
-                    screen_acceptor.clone(),
                     port_acceptor.clone(),
                 )
                 .await
@@ -205,7 +199,6 @@ async fn register_dialed_connection(
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) -> Result<(), TransportError> {
     let device = register_outbound_connection(connection, address_state)?;
@@ -216,7 +209,6 @@ async fn register_dialed_connection(
         pool,
         inbox,
         shell_acceptor,
-        screen_acceptor,
         port_acceptor,
     );
     Ok(())
@@ -228,7 +220,6 @@ fn spawn_stream_handler(
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) {
     tokio::spawn(async move {
@@ -237,7 +228,6 @@ fn spawn_stream_handler(
                 Ok((send, recv)) => {
                     let inbox = inbox.clone();
                     let shell_acceptor = shell_acceptor.clone();
-                    let screen_acceptor = screen_acceptor.clone();
                     let port_acceptor = port_acceptor.clone();
                     tokio::spawn(async move {
                         handle_incoming_bi_stream(
@@ -247,7 +237,6 @@ fn spawn_stream_handler(
                             inbox,
                             port_acceptor,
                             shell_acceptor,
-                            screen_acceptor,
                         )
                         .await;
                     });

@@ -51,7 +51,7 @@ export function DevicesPage() {
           <CardTitle>Registered devices</CardTitle>
           <CardDescription>
             Devices linked to your account. Feature toggles control clipboard
-            sync, remote shell, port forwarding, screen share, and other shared
+            sync, remote shell, port forwarding, and other shared
             capabilities.
           </CardDescription>
           <CardAction>

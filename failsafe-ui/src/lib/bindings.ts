@@ -67,7 +67,7 @@ export type DeviceUpsertRequest = {
 };
 
 /**  Identifies a sync feature */
-export type FeatureId = "clipboard" | "shell" | "screen_share" | "port_forward";
+export type FeatureId = "clipboard" | "shell" | "port_forward";
 
 export type PairingCreateResponse = {
 	code: string,
@@ -79,8 +79,3 @@ export type PairingRedeemRequest = {
 	device: DeviceUpsertRequest | null,
 };
 
-export type ScreenFramePayload = {
-	jpeg: number[],
-};
-
-export type ScreenQualityPreset = "auto" | "1080p" | "720p" | "480p" | "360p";

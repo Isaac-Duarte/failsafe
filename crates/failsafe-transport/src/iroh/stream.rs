@@ -10,7 +10,6 @@ use tracing::{debug, warn};
 
 use crate::codec;
 use crate::port;
-use crate::screen;
 use crate::shell;
 use crate::transport::TransportError;
 
@@ -19,17 +18,8 @@ const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 pub type ShellAcceptor = mpsc::Sender<ShellSession>;
 pub type SharedShellAcceptor = Arc<Mutex<Option<ShellAcceptor>>>;
 
-pub type ScreenAcceptor = mpsc::Sender<ScreenSession>;
-pub type SharedScreenAcceptor = Arc<Mutex<Option<ScreenAcceptor>>>;
-
 pub type PortAcceptor = mpsc::Sender<PortSession>;
 pub type SharedPortAcceptor = Arc<Mutex<Option<PortAcceptor>>>;
-
-pub struct ScreenSession {
-    pub from: DeviceId,
-    pub send: SendStream,
-    pub recv: RecvStream,
-}
 
 pub struct ShellSession {
     pub from: DeviceId,
@@ -76,7 +66,6 @@ pub async fn handle_incoming_bi_stream(
     inbox: mpsc::Sender<FeatureMessage>,
     port_acceptor: SharedPortAcceptor,
     shell_acceptor: SharedShellAcceptor,
-    screen_acceptor: SharedScreenAcceptor,
 ) {
     let mut header = [0u8; 4];
     if let Err(error) = read_exact(&mut recv, &mut header).await {
@@ -114,25 +103,6 @@ pub async fn handle_incoming_bi_stream(
 
         if acceptor.send(session).await.is_err() {
             warn!(%device, "port acceptor closed");
-        }
-        return;
-    }
-
-    if screen::is_screen_handshake(&header) {
-        let acceptor = screen_acceptor.lock().await.clone();
-        let Some(acceptor) = acceptor else {
-            warn!(%device, "rejected screen stream: screen acceptor not registered");
-            return;
-        };
-
-        let session = ScreenSession {
-            from: device,
-            send,
-            recv,
-        };
-
-        if acceptor.send(session).await.is_err() {
-            warn!(%device, "screen acceptor closed");
         }
         return;
     }
@@ -305,37 +275,6 @@ pub async fn relay_shell_to_channels(
     tokio::select! {
         result = input_to_stream => result?,
         result = stream_to_output => result?,
-    }
-    Ok(())
-}
-
-pub async fn relay_screen_inbound<W>(
-    mut recv: RecvStream,
-    mut output: W,
-) -> Result<(), TransportError>
-where
-    W: AsyncWrite + Unpin,
-{
-    let mut buf = [0u8; 8192];
-    loop {
-        let read = recv
-            .read(&mut buf)
-            .await
-            .map_err(|error| TransportError::Codec(error.to_string()))?;
-        let Some(read) = read else {
-            break;
-        };
-        if read == 0 {
-            break;
-        }
-        output
-            .write_all(&buf[..read])
-            .await
-            .map_err(|error| TransportError::Codec(error.to_string()))?;
-        output
-            .flush()
-            .await
-            .map_err(|error| TransportError::Codec(error.to_string()))?;
     }
     Ok(())
 }
