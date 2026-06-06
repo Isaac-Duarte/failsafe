@@ -1,4 +1,5 @@
 pub mod api;
+pub mod control;
 pub mod device;
 pub mod feature;
 pub mod message;

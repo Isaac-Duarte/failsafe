@@ -75,6 +75,14 @@ pub enum Command {
         /// Device name or ID. Omit for interactive selection.
         device: Option<String>,
     },
+    /// View another device's screen in the desktop app.
+    ScreenShare {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device name or ID.
+        device: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

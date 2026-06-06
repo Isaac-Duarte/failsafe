@@ -12,11 +12,16 @@ use crate::message::FeatureMessage;
 pub enum FeatureId {
     Clipboard,
     Shell,
+    ScreenShare,
 }
 
 impl FeatureId {
     pub fn all() -> &'static [FeatureId] {
-        &[FeatureId::Clipboard, FeatureId::Shell]
+        &[
+            FeatureId::Clipboard,
+            FeatureId::Shell,
+            FeatureId::ScreenShare,
+        ]
     }
 }
 
@@ -25,6 +30,7 @@ impl fmt::Display for FeatureId {
         match self {
             Self::Clipboard => write!(f, "clipboard"),
             Self::Shell => write!(f, "shell"),
+            Self::ScreenShare => write!(f, "screen_share"),
         }
     }
 }
@@ -40,6 +46,7 @@ impl FromStr for FeatureId {
         match value {
             "clipboard" => Ok(Self::Clipboard),
             "shell" => Ok(Self::Shell),
+            "screen_share" => Ok(Self::ScreenShare),
             other => Err(UnknownFeatureId(other.to_owned())),
         }
     }

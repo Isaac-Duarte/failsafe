@@ -14,7 +14,7 @@ use failsafe_core::registry::FeatureRegistry;
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
-use failsafe_transport::iroh::ShellSession;
+use failsafe_transport::iroh::{ScreenSession, ShellSession};
 use failsafe_transport::transport::Transport;
 use tokio::sync::{RwLock, mpsc};
 use tracing::info;
@@ -23,6 +23,9 @@ use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
 use crate::server::ServerClient;
+use crate::screen_service::{
+    handle_incoming_screen, start_screen_acceptor, stop_screen_acceptor,
+};
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
 
@@ -45,6 +48,7 @@ pub struct Daemon {
     iroh_public_key: Option<String>,
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
     shell_sessions: Option<mpsc::Receiver<ShellSession>>,
+    screen_sessions: Option<mpsc::Receiver<ScreenSession>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -165,6 +169,7 @@ impl DaemonBuilder {
             iroh_public_key: self.iroh_public_key,
             iroh: self.iroh,
             shell_sessions: None,
+            screen_sessions: None,
             config_path: None,
             config: None,
         })
@@ -298,6 +303,21 @@ impl Daemon {
         }
     }
 
+    async fn ensure_screen_service(&mut self) {
+        let screen_enabled = self.local_features.contains(&FeatureId::ScreenShare);
+
+        if screen_enabled && self.screen_sessions.is_none() {
+            if let Some(iroh) = self.iroh.clone() {
+                self.screen_sessions = Some(start_screen_acceptor(iroh).await);
+            }
+        } else if !screen_enabled && self.screen_sessions.is_some() {
+            if let Some(iroh) = &self.iroh {
+                stop_screen_acceptor(iroh).await;
+            }
+            self.screen_sessions = None;
+        }
+    }
+
     pub async fn run(&mut self) -> Result<(), DaemonError> {
         if self.server_client.is_none() {
             return Err(DaemonError::Config(
@@ -313,6 +333,7 @@ impl Daemon {
 
         self.registry.start_enabled().await?;
         self.ensure_shell_service().await;
+        self.ensure_screen_service().await;
 
         let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
         let control_server: Option<Arc<ControlServer>> = self
@@ -347,6 +368,16 @@ impl Daemon {
                         tokio::spawn(handle_incoming_shell(session));
                     }
                 }
+                screen_session = async {
+                    match self.screen_sessions.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Some(session) = screen_session {
+                        tokio::spawn(handle_incoming_screen(session));
+                    }
+                }
                 accepted = async {
                     match control_listener.as_ref() {
                         Some(listener) => listener.accept().await.ok(),
@@ -372,6 +403,7 @@ impl Daemon {
                     } else {
                         *shared_features.write().await = self.local_features.clone();
                         self.ensure_shell_service().await;
+                        self.ensure_screen_service().await;
                     }
                 }
                 result = tokio::signal::ctrl_c() => {
@@ -384,6 +416,7 @@ impl Daemon {
 
         if let Some(iroh) = &self.iroh {
             stop_shell_acceptor(iroh).await;
+            stop_screen_acceptor(iroh).await;
         }
 
         self.shutdown().await

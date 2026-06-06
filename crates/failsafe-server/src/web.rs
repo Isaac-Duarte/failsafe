@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 use rust_embed::Embed;
 
 #[derive(Embed)]
-#[folder = "../../failsafe-web/dist/"]
+#[folder = "../../failsafe-web-ui/dist/"]
 struct WebAssets;
 
 pub async fn serve(uri: Uri) -> Response {

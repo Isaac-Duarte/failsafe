@@ -1,0 +1,9 @@
+{
+  "name": "failsafe",
+  "private": true,
+  "workspaces": [
+    "failsafe-ui",
+    "failsafe-web-ui",
+    "failsafe-desktop-ui"
+  ]
+}

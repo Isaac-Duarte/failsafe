@@ -1,0 +1,32 @@
+{
+  "name": "failsafe-desktop-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri --config ../crates/failsafe-desktop/tauri.conf.json",
+    "tauri:dev": "tauri dev --config ../crates/failsafe-desktop/tauri.conf.json",
+    "tauri:build": "tauri build --config ../crates/failsafe-desktop/tauri.conf.json"
+  },
+  "dependencies": {
+    "@failsafe/ui": "file:../failsafe-ui",
+    "@tauri-apps/api": "^2.11.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.17.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4",
+    "typescript": "~6",
+    "vite": "^8"
+  }
+}

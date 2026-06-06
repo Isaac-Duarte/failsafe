@@ -1,3 +1,4 @@
+use failsafe_core::control::ControlError;
 use failsafe_core::feature::FeatureError;
 use failsafe_transport::transport::TransportError;
 
@@ -11,6 +12,9 @@ pub enum DaemonError {
 
     #[error("feature error: {0}")]
     Feature(#[from] FeatureError),
+
+    #[error("control error: {0}")]
+    Control(#[from] ControlError),
 
     #[error("transport error: {0}")]
     Transport(#[from] TransportError),

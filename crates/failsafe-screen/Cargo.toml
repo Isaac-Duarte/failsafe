@@ -1,0 +1,12 @@
+[package]
+name = "failsafe-screen"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+failsafe-core.workspace = true
+image.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tracing.workspace = true
+xcap = "0.9"

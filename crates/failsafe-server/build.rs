@@ -4,7 +4,7 @@ use std::process::Command;
 fn main() {
     let manifest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let web_dir = manifest_dir.join("../../failsafe-web");
+    let web_dir = manifest_dir.join("../../failsafe-web-ui");
     let dist_dir = web_dir.join("dist");
 
     println!(
@@ -28,7 +28,7 @@ fn main() {
     if std::env::var("FAILSAFE_SKIP_WEB_BUILD").is_ok() {
         if !dist_dir.join("index.html").exists() {
             panic!(
-                "FAILSAFE_SKIP_WEB_BUILD is set but {} does not exist; run `npm run build` in failsafe-web first",
+                "FAILSAFE_SKIP_WEB_BUILD is set but {} does not exist; run `npm run build` in failsafe-web-ui first",
                 dist_dir.join("index.html").display()
             );
         }
@@ -37,7 +37,7 @@ fn main() {
 
     if !web_dir.join("package.json").exists() {
         panic!(
-            "failsafe-web project not found at {}; run shadcn init in failsafe-web first",
+            "failsafe-web-ui project not found at {}; run shadcn init in failsafe-web-ui first",
             web_dir.display()
         );
     }
@@ -51,7 +51,7 @@ fn main() {
 
     if !dist_dir.join("index.html").exists() {
         panic!(
-            "frontend build did not produce {}; check failsafe-web build output",
+            "frontend build did not produce {}; check failsafe-web-ui build output",
             dist_dir.join("index.html").display()
         );
     }

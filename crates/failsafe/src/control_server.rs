@@ -17,6 +17,7 @@ use crate::control::{
     send_response,
 };
 use crate::error::DaemonError;
+use crate::screen_service::run_outgoing_screen_relay;
 use crate::shell_service::run_outgoing_shell;
 
 pub struct ControlServer {
@@ -86,6 +87,9 @@ impl ControlServer {
             } => {
                 self.handle_open_shell(&mut stream, target, rows, cols)
                     .await;
+            }
+            ControlRequest::OpenScreenShare { target } => {
+                self.handle_open_screen_share(&mut stream, target).await;
             }
         }
     }
@@ -172,6 +176,79 @@ impl ControlServer {
         }
 
         let _ = write_half.shutdown().await;
+    }
+
+    async fn handle_open_screen_share(&self, stream: &mut UnixStream, target: DeviceId) {
+        if !self
+            .local_features
+            .read()
+            .await
+            .contains(&FeatureId::ScreenShare)
+        {
+            let _ = send_response(
+                stream,
+                &ControlResponse::Error {
+                    message: "screen_share is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if !self
+            .peers
+            .is_feature_enabled(target, FeatureId::ScreenShare)
+            .await
+        {
+            let _ = send_response(
+                stream,
+                &ControlResponse::Error {
+                    message: format!(
+                        "screen_share is not enabled on device {target}; enable it on both devices"
+                    ),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if !self.iroh.connected_peers().await.contains(&target) {
+            let _ = send_response(
+                stream,
+                &ControlResponse::Error {
+                    message: format!("device {target} is offline or unreachable"),
+                },
+            )
+            .await;
+            return;
+        }
+
+        let session = match self.iroh.open_screen_stream(target).await {
+            Ok(session) => session,
+            Err(error) => {
+                let _ = send_response(
+                    stream,
+                    &ControlResponse::Error {
+                        message: format!("failed to open screen share: {error}"),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
+
+        if send_response(stream, &ControlResponse::Ready)
+            .await
+            .is_err()
+        {
+            return;
+        }
+
+        debug!(%target, "screen share session ready, relaying frames");
+
+        if let Err(error) = run_outgoing_screen_relay(session, stream).await {
+            warn!(%target, "screen share session ended with error: {error}");
+        }
     }
 }
 

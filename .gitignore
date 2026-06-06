@@ -1,6 +1,6 @@
 target/
-failsafe-web/node_modules/
-failsafe-web/dist/
 .env
 dev
 failsafe.db
+node_modules
+dist

@@ -9,7 +9,9 @@ use tracing::{debug, warn};
 
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
-use crate::iroh::stream::{SharedShellAcceptor, handle_incoming_bi_stream};
+use crate::iroh::stream::{
+    SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
+};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]
@@ -18,6 +20,7 @@ pub struct FailsafeProtocol {
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
+    screen_acceptor: SharedScreenAcceptor,
 }
 
 impl FailsafeProtocol {
@@ -26,12 +29,14 @@ impl FailsafeProtocol {
         inbox: mpsc::Sender<FeatureMessage>,
         address_state: SharedAddressState,
         shell_acceptor: SharedShellAcceptor,
+        screen_acceptor: SharedScreenAcceptor,
     ) -> Self {
         Self {
             pool,
             inbox,
             address_state,
             shell_acceptor,
+            screen_acceptor,
         }
     }
 }
@@ -55,8 +60,17 @@ impl ProtocolHandler for FailsafeProtocol {
                 Ok((send, recv)) => {
                     let inbox = self.inbox.clone();
                     let shell_acceptor = self.shell_acceptor.clone();
+                    let screen_acceptor = self.screen_acceptor.clone();
                     tokio::spawn(async move {
-                        handle_incoming_bi_stream(send, recv, device, inbox, shell_acceptor).await;
+                        handle_incoming_bi_stream(
+                            send,
+                            recv,
+                            device,
+                            inbox,
+                            shell_acceptor,
+                            screen_acceptor,
+                        )
+                        .await;
                     });
                 }
                 Err(error) => {
