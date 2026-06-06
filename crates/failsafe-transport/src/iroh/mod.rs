@@ -11,7 +11,8 @@ mod tests;
 pub use address::SharedAddressState;
 pub use config::IrohConfig;
 pub use stream::{
-    ScreenAcceptor, ScreenSession, SharedScreenAcceptor, SharedShellAcceptor, ShellAcceptor,
-    ShellSession, relay_screen_inbound, relay_shell_streams, relay_shell_to_channels,
+    PortAcceptor, PortSession, ScreenAcceptor, ScreenSession, SharedPortAcceptor,
+    SharedScreenAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession, relay_port_streams,
+    relay_screen_inbound, relay_shell_streams, relay_shell_to_channels,
 };
 pub use transport::IrohTransport;

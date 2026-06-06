@@ -14,6 +14,11 @@ export const KNOWN_FEATURES = [
     label: "Screen Share",
     description: "Allow other devices to view this screen",
   },
+  {
+    id: "port_forward",
+    label: "Port Forward",
+    description: "Accept forwarded TCP connections from other devices",
+  },
 ] as const
 
 export type KnownFeatureId = (typeof KNOWN_FEATURES)[number]["id"]

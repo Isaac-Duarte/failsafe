@@ -12,7 +12,7 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
 use failsafe_transport::blobs::BlobTransfer;
-use failsafe_transport::iroh::{ScreenSession, ShellSession};
+use failsafe_transport::iroh::{PortSession, ScreenSession, ShellSession};
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
 use failsafe_transport::transport::Transport;
@@ -22,6 +22,7 @@ use tracing::info;
 use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
+use crate::port_service::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
 use crate::screen_service::{handle_incoming_screen, start_screen_acceptor, stop_screen_acceptor};
 use crate::server::ServerClient;
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
@@ -47,6 +48,7 @@ pub struct Daemon {
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
     shell_sessions: Option<mpsc::Receiver<ShellSession>>,
     screen_sessions: Option<mpsc::Receiver<ScreenSession>>,
+    port_sessions: Option<mpsc::Receiver<PortSession>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -168,6 +170,7 @@ impl DaemonBuilder {
             iroh: self.iroh,
             shell_sessions: None,
             screen_sessions: None,
+            port_sessions: None,
             config_path: None,
             config: None,
         })
@@ -316,6 +319,21 @@ impl Daemon {
         }
     }
 
+    async fn ensure_port_service(&mut self) {
+        let port_enabled = self.local_features.contains(&FeatureId::PortForward);
+
+        if port_enabled && self.port_sessions.is_none() {
+            if let Some(iroh) = self.iroh.clone() {
+                self.port_sessions = Some(start_port_acceptor(iroh).await);
+            }
+        } else if !port_enabled && self.port_sessions.is_some() {
+            if let Some(iroh) = &self.iroh {
+                stop_port_acceptor(iroh).await;
+            }
+            self.port_sessions = None;
+        }
+    }
+
     pub async fn run(&mut self) -> Result<(), DaemonError> {
         if self.server_client.is_none() {
             return Err(DaemonError::Config(
@@ -332,6 +350,7 @@ impl Daemon {
         self.registry.start_enabled().await?;
         self.ensure_shell_service().await;
         self.ensure_screen_service().await;
+        self.ensure_port_service().await;
 
         let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
         let control_server: Option<Arc<ControlServer>> = self
@@ -374,6 +393,16 @@ impl Daemon {
                         tokio::spawn(handle_incoming_screen(session));
                     }
                 }
+                port_session = async {
+                    match self.port_sessions.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Some(session) = port_session {
+                        tokio::spawn(handle_incoming_port(session));
+                    }
+                }
                 accepted = async {
                     match control_listener.as_ref() {
                         Some(listener) => listener.accept().await.ok(),
@@ -413,6 +442,7 @@ impl Daemon {
         if let Some(iroh) = &self.iroh {
             stop_shell_acceptor(iroh).await;
             stop_screen_acceptor(iroh).await;
+            stop_port_acceptor(iroh).await;
         }
 
         self.shutdown().await

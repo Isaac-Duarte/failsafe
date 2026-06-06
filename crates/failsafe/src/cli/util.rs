@@ -29,6 +29,45 @@ pub fn default_hostname() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortSpec {
+    pub local_port: u16,
+    pub remote_port: u16,
+}
+
+pub fn parse_port_spec(value: &str, remote_port_override: Option<u16>) -> Result<PortSpec, DaemonError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(DaemonError::Config("port cannot be empty".to_owned()));
+    }
+
+    let (local_port, remote_port) = if let Some((local, remote)) = value.split_once(':') {
+        (parse_port_number(local)?, parse_port_number(remote)?)
+    } else {
+        let local = parse_port_number(value)?;
+        let remote = remote_port_override.unwrap_or(local);
+        (local, remote)
+    };
+
+    Ok(PortSpec {
+        local_port,
+        remote_port,
+    })
+}
+
+fn parse_port_number(value: &str) -> Result<u16, DaemonError> {
+    let value = value.trim();
+    let port: u32 = value
+        .parse()
+        .map_err(|_| DaemonError::Config(format!("invalid port `{value}`")))?;
+    if !(1..=65535).contains(&port) {
+        return Err(DaemonError::Config(format!(
+            "port must be between 1 and 65535, got {port}"
+        )));
+    }
+    Ok(port as u16)
+}
+
 pub fn resolve_device_target(
     query: &str,
     self_id: DeviceId,
@@ -82,6 +121,27 @@ pub fn resolve_device_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_port_spec_parses_local_and_remote() {
+        let spec = parse_port_spec("8080:3000", None).unwrap();
+        assert_eq!(spec.local_port, 8080);
+        assert_eq!(spec.remote_port, 3000);
+    }
+
+    #[test]
+    fn parse_port_spec_uses_remote_override() {
+        let spec = parse_port_spec("8080", Some(3000)).unwrap();
+        assert_eq!(spec.local_port, 8080);
+        assert_eq!(spec.remote_port, 3000);
+    }
+
+    #[test]
+    fn parse_port_spec_defaults_remote_to_local() {
+        let spec = parse_port_spec("8080", None).unwrap();
+        assert_eq!(spec.local_port, 8080);
+        assert_eq!(spec.remote_port, 8080);
+    }
 
     #[test]
     fn parse_feature_list_splits_comma_separated_values() {

@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use failsafe_core::control::PortProtocol;
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer_address::PeerAddressBook;
@@ -21,10 +22,11 @@ use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
 use crate::iroh::stream::{
-    ScreenAcceptor, ScreenSession, SharedScreenAcceptor, SharedShellAcceptor, ShellAcceptor,
-    ShellSession,
+    PortAcceptor, PortSession, ScreenAcceptor, ScreenSession, SharedPortAcceptor,
+    SharedScreenAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession,
 };
 use crate::peer_updater::PeerAddressUpdater;
+use crate::port;
 use crate::screen;
 use crate::shell;
 use crate::transport::{Transport, TransportError};
@@ -40,6 +42,7 @@ pub struct IrohTransport {
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
     screen_acceptor: SharedScreenAcceptor,
+    port_acceptor: SharedPortAcceptor,
 }
 
 impl IrohTransport {
@@ -72,6 +75,7 @@ impl IrohTransport {
 
         let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
         let screen_acceptor: SharedScreenAcceptor = Arc::new(Mutex::new(None));
+        let port_acceptor: SharedPortAcceptor = Arc::new(Mutex::new(None));
 
         let local_endpoint_id = endpoint.id();
         let failsafe_protocol = FailsafeProtocol::new(
@@ -81,6 +85,7 @@ impl IrohTransport {
             local_endpoint_id,
             shell_acceptor.clone(),
             screen_acceptor.clone(),
+            port_acceptor.clone(),
         );
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
@@ -95,6 +100,7 @@ impl IrohTransport {
             address_state.clone(),
             shell_acceptor.clone(),
             screen_acceptor.clone(),
+            port_acceptor.clone(),
         );
 
         Ok(Self {
@@ -108,6 +114,7 @@ impl IrohTransport {
             address_state,
             shell_acceptor,
             screen_acceptor,
+            port_acceptor,
         })
     }
 
@@ -145,6 +152,14 @@ impl IrohTransport {
 
     pub async fn clear_screen_acceptor(&self) {
         *self.screen_acceptor.lock().await = None;
+    }
+
+    pub async fn set_port_acceptor(&self, acceptor: PortAcceptor) {
+        *self.port_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_port_acceptor(&self) {
+        *self.port_acceptor.lock().await = None;
     }
 
     pub async fn open_shell_stream(
@@ -200,6 +215,37 @@ impl IrohTransport {
 
         Ok(ScreenSession {
             from: peer,
+            send,
+            recv,
+        })
+    }
+
+    pub async fn open_port_stream(
+        &self,
+        peer: DeviceId,
+        remote_port: u16,
+        protocol: PortProtocol,
+    ) -> Result<PortSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = port::build_port_init(remote_port, protocol);
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(PortSession {
+            from: peer,
+            remote_port,
+            protocol,
             send,
             recv,
         })

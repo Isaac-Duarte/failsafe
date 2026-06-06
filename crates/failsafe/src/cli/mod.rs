@@ -1,6 +1,7 @@
 mod args;
 mod commands;
 mod context;
+mod device_select;
 mod util;
 
 use clap::Parser;
@@ -35,5 +36,12 @@ pub async fn execute() -> Result<(), DaemonError> {
         Command::ScreenShare { config, device } => {
             commands::screen_share(config, server_url, device).await
         }
+        Command::Port {
+            config,
+            port,
+            protocol,
+            remote_port,
+            device,
+        } => commands::port(config, server_url, port, protocol, remote_port, device).await,
     }
 }

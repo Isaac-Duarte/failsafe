@@ -83,6 +83,21 @@ pub enum Command {
         /// Device name or ID.
         device: Option<String>,
     },
+    /// Forward a local TCP port to a paired device.
+    Port {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Local port, or LOCAL:REMOTE (e.g. 8080:3000).
+        port: Option<String>,
+        /// Protocol (tcp only for now).
+        protocol: Option<String>,
+        /// Override remote port when PORT is a single number.
+        #[arg(long)]
+        remote_port: Option<u16>,
+        /// Device name or ID. Omit for interactive selection.
+        device: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

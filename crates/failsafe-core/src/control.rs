@@ -15,6 +15,12 @@ pub enum ControlError {
     Io(#[from] std::io::Error),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortProtocol {
+    Tcp,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ControlRequest {
@@ -25,6 +31,12 @@ pub enum ControlRequest {
     },
     OpenScreenShare {
         target: DeviceId,
+    },
+    OpenPortForward {
+        target: DeviceId,
+        local_port: u16,
+        remote_port: u16,
+        protocol: PortProtocol,
     },
 }
 

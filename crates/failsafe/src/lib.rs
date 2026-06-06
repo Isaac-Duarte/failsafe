@@ -4,6 +4,7 @@ pub mod control_server;
 pub mod credentials;
 pub mod daemon;
 pub mod error;
+pub mod port_service;
 pub mod screen_service;
 pub mod server;
 pub mod shell_service;
