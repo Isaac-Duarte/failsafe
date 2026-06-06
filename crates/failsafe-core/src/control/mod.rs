@@ -41,12 +41,19 @@ pub enum ControlRequest {
     },
     SendFiles {
         target: crate::device::DeviceId,
-        paths: Vec<PathBuf>,
+        paths: Vec<SendPathSpec>,
         transfer_id: Uuid,
         #[serde(default)]
         resume: bool,
     },
     CancelTransfers,
+}
+
+/// A local file or directory to send, with the archive path the receiver should see.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendPathSpec {
+    pub local: PathBuf,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

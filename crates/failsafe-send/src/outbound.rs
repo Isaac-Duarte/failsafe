@@ -1,8 +1,7 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use failsafe_clipboard::limits::ClipboardLimits;
-use failsafe_core::control::SendPhase;
+use failsafe_core::control::{SendPathSpec, SendPhase};
 use failsafe_transport::blobs::{BlobHash, BlobProgress, BlobTransfer};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -12,7 +11,7 @@ use crate::payload::{FileEntry, SEND_PAYLOAD_VERSION, SendPayload};
 use crate::transfer_state::{SendStage, SendTransferState, save_send_state};
 
 pub async fn prepare_send_payload(
-    paths: &[PathBuf],
+    paths: &[SendPathSpec],
     target: failsafe_core::device::DeviceId,
     blob_transfer: Arc<dyn BlobTransfer>,
     limits: ClipboardLimits,

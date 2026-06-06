@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use failsafe_core::control::SendPathSpec;
 use failsafe_core::device::DeviceId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 use crate::payload::FileEntry;
@@ -29,7 +30,11 @@ pub enum ReceiveStage {
 pub struct SendTransferState {
     pub transfer_id: Uuid,
     pub target: DeviceId,
-    pub paths: Vec<PathBuf>,
+    #[serde(
+        serialize_with = "serialize_send_paths",
+        deserialize_with = "deserialize_send_paths"
+    )]
+    pub paths: Vec<SendPathSpec>,
     pub stage: SendStage,
     pub collection_hash: Option<String>,
     pub entries: Vec<FileEntry>,
@@ -37,6 +42,40 @@ pub struct SendTransferState {
     pub bytes_total: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+fn serialize_send_paths<S>(
+    paths: &[SendPathSpec],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    paths.serialize(serializer)
+}
+
+fn deserialize_send_paths<'de, D>(deserializer: D) -> Result<Vec<SendPathSpec>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StoredSendPath {
+        Legacy(PathBuf),
+        Spec(SendPathSpec),
+    }
+
+    let items = Vec::<StoredSendPath>::deserialize(deserializer)?;
+    Ok(items
+        .into_iter()
+        .map(|item| match item {
+            StoredSendPath::Legacy(local) => SendPathSpec {
+                local,
+                label: String::new(),
+            },
+            StoredSendPath::Spec(spec) => spec,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

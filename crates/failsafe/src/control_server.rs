@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::PortProtocol;
-use failsafe_core::control::{ControlEvent, SendPhase};
+use failsafe_core::control::{ControlEvent, SendPhase, SendPathSpec};
 use failsafe_core::control::{ControlListener, ControlStream, bind_control};
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -303,7 +303,7 @@ impl ControlServer {
         &self,
         mut stream: ControlStream,
         target: DeviceId,
-        paths: Vec<PathBuf>,
+        paths: Vec<SendPathSpec>,
         transfer_id: Uuid,
         resume: bool,
     ) {

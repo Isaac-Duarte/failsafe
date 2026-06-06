@@ -20,7 +20,8 @@ pub use cancel::{cancel_all_incomplete_receives, cancel_all_incomplete_sends};
 pub use coordinator::SendCoordinator;
 pub use feature::SendFeature;
 pub use files::{
-    collect_file_preview, collect_import_sources, format_bytes, read_files_from_paths,
+    collect_file_preview, collect_import_sources, format_bytes, prepare_send_paths,
+    read_files_from_paths,
 };
 pub use inbound::save_received_files;
 pub use log::eprint_send;

@@ -5,7 +5,9 @@ use std::time::Duration;
 use failsafe::DaemonError;
 use failsafe_core::control::connect_control;
 use failsafe_core::control::{ControlEvent, SendPhase, send_phase_label};
-use failsafe_send::{collect_file_preview, format_bytes, list_incomplete_sends, load_send_state};
+use failsafe_send::{
+    collect_file_preview, format_bytes, list_incomplete_sends, load_send_state, prepare_send_paths,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Confirm;
 use uuid::Uuid;
@@ -42,6 +44,7 @@ pub async fn send(
             .map_err(DaemonError::Config)?;
         (transfer_id, true, state.paths, Some(state.target))
     } else {
+        let paths = prepare_send_paths(&paths).map_err(DaemonError::Config)?;
         (Uuid::new_v4(), false, paths, None)
     };
 
