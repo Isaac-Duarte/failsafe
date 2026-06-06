@@ -2,7 +2,7 @@ use libwayshot_xcap::region::LogicalRegion;
 use libwayshot_xcap::WayshotConnection;
 use scrap::{Capturer, Display};
 use std::io::ErrorKind;
-use tracing::debug;
+use tracing::{debug, warn};
 use xcap::Monitor;
 
 use super::{CaptureError, CapturedFrame};
@@ -29,11 +29,15 @@ enum LinuxBackend {
 impl LinuxCapturer {
     pub fn new() -> Result<Self, CaptureError> {
         if is_wayland_session() {
-            if let Ok(capturer) = Self::try_wayland_wlroots() {
-                debug!("using wayland wlroots screen capture");
-                return Ok(capturer);
+            if is_wlroots_desktop() {
+                if let Ok(capturer) = Self::try_wayland_wlroots() {
+                    debug!("using wayland wlroots screen capture");
+                    return Ok(capturer);
+                }
+                warn!("wlroots screen capture unavailable, falling back to xcap");
+            } else {
+                debug!("non-wlroots wayland session, using xcap screen capture");
             }
-            debug!("falling back to xcap screen capture on wayland");
             Ok(Self {
                 backend: LinuxBackend::Xcap,
             })
@@ -60,7 +64,14 @@ impl LinuxCapturer {
                 region,
                 width,
                 height,
-            } => capture_wayland_wlroots(connection, region, *width, *height),
+            } => match capture_wayland_wlroots(connection, region, *width, *height) {
+                Ok(frame) => Ok(frame),
+                Err(error) => {
+                    warn!("wlroots capture failed, falling back to xcap: {error}");
+                    self.backend = LinuxBackend::Xcap;
+                    capture_xcap()
+                }
+            },
             LinuxBackend::Xcap => capture_xcap(),
         }
     }
@@ -91,6 +102,15 @@ impl LinuxCapturer {
         let width = region.inner.size.width;
         let height = region.inner.size.height;
 
+        let probe = connection
+            .screenshot(region.clone(), false)
+            .map_err(|error| CaptureError::Capture(error.to_string()))?;
+        if probe.width() == 0 || probe.height() == 0 {
+            return Err(CaptureError::Capture(
+                "wlroots probe capture returned an empty image".to_owned(),
+            ));
+        }
+
         Ok(Self {
             backend: LinuxBackend::WaylandWlroots {
                 connection,
@@ -107,6 +127,34 @@ fn is_wayland_session() -> bool {
         || std::env::var("XDG_SESSION_TYPE")
             .map(|value| value.eq_ignore_ascii_case("wayland"))
             .unwrap_or(false)
+}
+
+fn is_wlroots_desktop() -> bool {
+    if std::env::var_os("SWAYSOCK").is_some()
+        || std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        || std::env::var_os("LABWC_PID").is_some()
+    {
+        return true;
+    }
+
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if desktop.contains("gnome")
+        || desktop.contains("kde")
+        || desktop.contains("plasma")
+        || desktop.contains("ubuntu")
+        || desktop.contains("pop")
+    {
+        return false;
+    }
+
+    desktop.contains("sway")
+        || desktop.contains("hyprland")
+        || desktop.contains("wlroots")
+        || desktop.contains("river")
+        || desktop.contains("labwc")
+        || desktop.contains("wayfire")
 }
 
 fn capture_x11(
@@ -150,9 +198,7 @@ fn capture_wayland_wlroots(
     let image = connection
         .screenshot(region.clone(), false)
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
-    let rgba = image
-        .to_rgba8()
-        .into_raw();
+    let rgba = image.to_rgba8().into_raw();
 
     Ok(CapturedFrame {
         width,

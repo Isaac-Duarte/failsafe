@@ -101,7 +101,11 @@ pub async fn run_screen_host(
             let started = Instant::now();
             let frame = match capturer.capture() {
                 Ok(frame) => frame,
-                Err(error) => return Err::<(), CaptureError>(error),
+                Err(error) => {
+                    warn!("screen capture failed: {error}");
+                    thread::sleep(Duration::from_millis(250));
+                    continue;
+                }
             };
 
             match encoder.encode_frame(frame, &current) {
