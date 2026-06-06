@@ -1,5 +1,5 @@
-use libwayshot_xcap::region::LogicalRegion;
 use libwayshot_xcap::WayshotConnection;
+use libwayshot_xcap::region::LogicalRegion;
 use scrap::{Capturer, Display};
 use std::io::ErrorKind;
 use tracing::debug;
@@ -66,10 +66,12 @@ impl LinuxCapturer {
     }
 
     fn try_x11() -> Result<Self, CaptureError> {
-        let display = Display::primary().map_err(|error| CaptureError::Capture(error.to_string()))?;
-        let width = display.width();
-        let height = display.height();
-        let capturer = Capturer::new(display).map_err(|error| CaptureError::Capture(error.to_string()))?;
+        let display =
+            Display::primary().map_err(|error| CaptureError::Capture(error.to_string()))?;
+        let width = display.width() as u32;
+        let height = display.height() as u32;
+        let capturer =
+            Capturer::new(display).map_err(|error| CaptureError::Capture(error.to_string()))?;
 
         Ok(Self {
             backend: LinuxBackend::X11 {
@@ -137,7 +139,7 @@ fn capture_x11(
     Ok(CapturedFrame {
         width,
         height,
-        rgba: bgra_to_rgba(buffer),
+        rgba: bgra_to_rgba(&buffer),
     })
 }
 
@@ -150,9 +152,7 @@ fn capture_wayland_wlroots(
     let image = connection
         .screenshot(region.clone(), false)
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
-    let rgba = image
-        .to_rgba8()
-        .into_raw();
+    let rgba = image.to_rgba8().into_raw();
 
     Ok(CapturedFrame {
         width,
@@ -163,7 +163,10 @@ fn capture_wayland_wlroots(
 
 fn capture_xcap() -> Result<CapturedFrame, CaptureError> {
     let monitors = Monitor::all().map_err(|error| CaptureError::Capture(error.to_string()))?;
-    let monitor = monitors.into_iter().next().ok_or(CaptureError::NoMonitors)?;
+    let monitor = monitors
+        .into_iter()
+        .next()
+        .ok_or(CaptureError::NoMonitors)?;
     let image = monitor
         .capture_image()
         .map_err(|error| CaptureError::Image(error.to_string()))?;
