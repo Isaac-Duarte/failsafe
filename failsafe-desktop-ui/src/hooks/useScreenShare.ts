@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 interface ScreenFrameEvent {
   jpeg: number[]
@@ -40,6 +40,8 @@ export function useScreenShare(
   )
   const [error, setError] = useState<string | null>(null)
   const [quality, setQualityState] = useState<ScreenQualityPreset>(loadStoredQuality)
+  const [fps, setFps] = useState(0)
+  const frameCountRef = useRef(0)
 
   const stop = useCallback(async () => {
     try {
@@ -72,6 +74,17 @@ export function useScreenShare(
   )
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      setFps(frameCountRef.current)
+      frameCountRef.current = 0
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!deviceId) {
       return
     }
@@ -81,6 +94,8 @@ export function useScreenShare(
     const unlisteners: UnlistenFn[] = []
     const initialQuality = loadStoredQuality()
     setQualityState(initialQuality)
+    setFps(0)
+    frameCountRef.current = 0
 
     async function start() {
       setStatus("connecting")
@@ -120,6 +135,7 @@ export function useScreenShare(
             return nextUrl
           })
           objectUrl = nextUrl
+          frameCountRef.current += 1
           setStatus("live")
         })
       )
@@ -151,5 +167,5 @@ export function useScreenShare(
     }
   }, [deviceId, deviceName])
 
-  return { frameUrl, status, error, quality, setQuality, stop }
+  return { frameUrl, status, error, quality, fps, setQuality, stop }
 }

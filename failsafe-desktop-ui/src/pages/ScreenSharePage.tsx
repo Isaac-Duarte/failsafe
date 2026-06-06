@@ -32,7 +32,7 @@ export function ScreenSharePage() {
   const [searchParams] = useSearchParams()
   const deviceName = searchParams.get("name") ?? deviceId ?? "Device"
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
-  const { frameUrl, status, error, quality, setQuality, stop } = useScreenShare(
+  const { frameUrl, status, error, quality, fps, setQuality, stop } = useScreenShare(
     deviceId,
     deviceName
   )
@@ -134,6 +134,11 @@ export function ScreenSharePage() {
                     ? "Opening screen share session..."
                     : "Waiting for frames..."}
                 </p>
+              ) : null}
+              {status === "live" && frameUrl ? (
+                <span className="absolute bottom-3 left-3 rounded-md bg-black/60 px-2 py-1 text-xs text-white tabular-nums">
+                  {fps} FPS
+                </span>
               ) : null}
               {frameUrl ? (
                 <div className="absolute top-3 right-3 flex items-center gap-2">
