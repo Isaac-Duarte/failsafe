@@ -157,11 +157,11 @@ where
                 .write_all(&buf[..read])
                 .await
                 .map_err(|error| TransportError::Codec(error.to_string()))?;
+            output
+                .flush()
+                .await
+                .map_err(|error| TransportError::Codec(error.to_string()))?;
         }
-        output
-            .flush()
-            .await
-            .map_err(|error| TransportError::Codec(error.to_string()))?;
         Ok::<(), TransportError>(())
     };
 

@@ -43,6 +43,9 @@ pub async fn run_shell_host(
     let shell = default_shell();
     let mut command = CommandBuilder::new(&shell);
     command.env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_owned()));
+    if shell.ends_with("bash") || shell.ends_with("zsh") {
+        command.arg("-i");
+    }
 
     let _child = pair
         .slave

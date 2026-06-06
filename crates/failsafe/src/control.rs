@@ -1,9 +1,11 @@
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use failsafe_core::device::DeviceId;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc;
 
 use crate::error::DaemonError;
 
@@ -99,40 +101,70 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), DaemonError> {
 
 pub async fn relay_terminal_io(stream: &mut UnixStream) -> Result<(), DaemonError> {
     let (mut stream_read, mut stream_write) = tokio::io::split(stream);
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(32);
+    let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(32);
 
-    let stream_to_local = async {
+    let stdin_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
+        let mut stdin = std::io::stdin();
+        let mut buf = [0u8; 256];
+        loop {
+            let read = stdin.read(&mut buf)?;
+            if read == 0 {
+                break;
+            }
+            if stdin_tx.blocking_send(buf[..read].to_vec()).is_err() {
+                break;
+            }
+        }
+        Ok(())
+    });
+
+    let stdout_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
+        let mut stdout = std::io::stdout();
+        while let Some(data) = stdout_rx.blocking_recv() {
+            stdout.write_all(&data)?;
+            stdout.flush()?;
+        }
+        Ok(())
+    });
+
+    let socket_to_stdout = async {
         let mut buf = [0u8; 4096];
         loop {
             let read = stream_read.read(&mut buf).await.map_err(DaemonError::Io)?;
             if read == 0 {
                 break;
             }
-            stdout
-                .write_all(&buf[..read])
-                .await
-                .map_err(DaemonError::Io)?;
-        }
-        Ok::<(), DaemonError>(())
-    };
-
-    let local_to_stream = async {
-        let mut buf = [0u8; 4096];
-        loop {
-            let read = stdin.read(&mut buf).await.map_err(DaemonError::Io)?;
-            if read == 0 {
+            if stdout_tx.send(buf[..read].to_vec()).await.is_err() {
                 break;
             }
-            stream_write
-                .write_all(&buf[..read])
-                .await
-                .map_err(DaemonError::Io)?;
         }
-        stream_write.flush().await.map_err(DaemonError::Io)?;
+        drop(stdout_tx);
         Ok::<(), DaemonError>(())
     };
 
-    tokio::try_join!(stream_to_local, local_to_stream)?;
+    let stdin_to_socket = async {
+        while let Some(data) = stdin_rx.recv().await {
+            stream_write
+                .write_all(&data)
+                .await
+                .map_err(DaemonError::Io)?;
+            stream_write.flush().await.map_err(DaemonError::Io)?;
+        }
+        Ok::<(), DaemonError>(())
+    };
+
+    let (stdout_result, stdin_result) = tokio::join!(socket_to_stdout, stdin_to_socket);
+
+    stdout_result?;
+    stdin_result?;
+
+    stdin_task
+        .await
+        .map_err(|error| DaemonError::Io(std::io::Error::other(error)))??;
+    stdout_task
+        .await
+        .map_err(|error| DaemonError::Io(std::io::Error::other(error)))??;
+
     Ok(())
 }

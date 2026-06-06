@@ -30,6 +30,7 @@ pub async fn relay_channels_to_pty(
         let mut writer = pty_writer;
         while let Some(data) = to_pty_rx.blocking_recv() {
             writer.write_all(&data)?;
+            writer.flush()?;
         }
         Ok(())
     });
