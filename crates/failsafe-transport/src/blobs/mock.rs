@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use failsafe_core::device::DeviceId;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
-use super::{BlobError, BlobHash, BlobProgress, BlobTransfer, ImportedFile};
+use super::{
+    BlobError, BlobHash, BlobProgress, BlobTransfer, ImportedFile, MAX_CONCURRENT_IMPORTS,
+};
 
 #[derive(Default)]
 struct MockState {
@@ -103,11 +105,16 @@ impl BlobTransfer for MockBlobTransfer {
             })
             .sum();
 
+        let import_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_IMPORTS));
         let mut handles = Vec::with_capacity(sources.len());
         for (name, path) in sources {
             let name = name.clone();
             let path = path.clone();
+            let import_slots = import_slots.clone();
             handles.push(tokio::spawn(async move {
+                let Ok(_permit) = import_slots.acquire().await else {
+                    return Err(BlobError::Store("import cancelled".to_owned()));
+                };
                 let data = tokio::fs::read(&path)
                     .await
                     .map_err(|error| BlobError::Store(error.to_string()))?;
@@ -221,5 +228,31 @@ impl BlobTransfer for MockBlobTransfer {
             || state.collections.contains_key(root.as_str());
         let bytes_done = if complete { total_bytes } else { 0 };
         Ok((bytes_done, total_bytes, complete))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn import_many_files_with_limited_concurrency() {
+        let temp = TempDir::new().expect("tempdir");
+        let mut sources = Vec::new();
+        for index in 0..64 {
+            let name = format!("file-{index}.txt");
+            let path = temp.path().join(&name);
+            std::fs::write(&path, b"payload").expect("write fixture");
+            sources.push((name, path));
+        }
+
+        let transfer = MockBlobTransfer::new();
+        let (_, imported) = transfer
+            .import_sources(&sources, &mut |_| {})
+            .await
+            .expect("import many files");
+
+        assert_eq!(imported.len(), 64);
     }
 }

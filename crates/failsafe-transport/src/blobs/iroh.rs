@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 
 use async_trait::async_trait;
@@ -21,7 +21,9 @@ use n0_future::StreamExt;
 
 use crate::iroh::SharedAddressState;
 
-use super::{BlobError, BlobHash, BlobProgress, BlobTransfer, ImportedFile};
+use super::{
+    BlobError, BlobHash, BlobProgress, BlobTransfer, ImportedFile, MAX_CONCURRENT_IMPORTS,
+};
 
 pub struct IrohBlobTransfer {
     store: FsStore,
@@ -196,6 +198,7 @@ impl BlobTransfer for IrohBlobTransfer {
         let (progress_tx, mut progress_rx) = mpsc::channel(256);
         let (result_tx, mut result_rx) = mpsc::channel(sources.len());
 
+        let import_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_IMPORTS));
         let mut join_set = JoinSet::new();
         for (index, (name, path)) in sources.iter().enumerate() {
             let store = self.store.clone();
@@ -203,7 +206,11 @@ impl BlobTransfer for IrohBlobTransfer {
             let path = path.clone();
             let progress_tx = progress_tx.clone();
             let result_tx = result_tx.clone();
+            let import_slots = import_slots.clone();
             join_set.spawn(async move {
+                let Ok(_permit) = import_slots.acquire().await else {
+                    return;
+                };
                 let result = import_source_file(store, name, path, index, progress_tx).await;
                 let _ = result_tx.send((index, result)).await;
             });

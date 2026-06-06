@@ -10,6 +10,9 @@ pub use mock::MockBlobTransfer;
 #[cfg(feature = "iroh-blobs")]
 pub use iroh::IrohBlobTransfer;
 
+/// Cap parallel per-file imports so large directories (e.g. `target/`) do not exhaust fds.
+pub(crate) const MAX_CONCURRENT_IMPORTS: usize = 16;
+
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
