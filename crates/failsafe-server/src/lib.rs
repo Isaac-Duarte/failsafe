@@ -9,6 +9,7 @@ pub mod middleware;
 pub mod migration;
 pub mod pairing;
 pub mod presence;
+pub mod refresh_token;
 pub mod routes;
 pub mod state;
 pub mod web;

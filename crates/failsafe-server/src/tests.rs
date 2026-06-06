@@ -1,9 +1,9 @@
 use axum::body::Body;
 use chrono::{Duration, Utc};
 use failsafe_core::api::{
-    AccountId, AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
-    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
-    PairingRedeemRequest,
+    AccountId, AccountResponse, AuthLoginRequest, AuthLogoutRequest, AuthRefreshRequest,
+    AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse, DevicePatchRequest,
+    DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -86,7 +86,7 @@ async fn auth_me_returns_account_email() {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token } = body_json(register_response.into_body()).await;
+    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
 
     let me_response = app
         .clone()
@@ -130,7 +130,7 @@ async fn register_login_and_manage_devices() {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token } = body_json(register_response.into_body()).await;
+    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
 
     let login_response = app
         .clone()
@@ -152,7 +152,10 @@ async fn register_login_and_manage_devices() {
         .unwrap();
 
     assert_eq!(login_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token: login_token } = body_json(login_response.into_body()).await;
+    let AuthResponse {
+        token: login_token,
+        ..
+    } = body_json(login_response.into_body()).await;
     assert!(!login_token.is_empty());
     assert!(!token.is_empty());
 
@@ -223,7 +226,7 @@ async fn pairing_code_can_be_redeemed_once() {
         .await
         .unwrap();
 
-    let AuthResponse { token } = body_json(register_response.into_body()).await;
+    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
 
     let create_response = app
         .clone()
@@ -266,6 +269,7 @@ async fn pairing_code_can_be_redeemed_once() {
     assert_eq!(redeem_response.status(), axum::http::StatusCode::OK);
     let AuthResponse {
         token: redeemed_token,
+        ..
     } = body_json(redeem_response.into_body()).await;
     assert!(!redeemed_token.is_empty());
 
@@ -325,7 +329,7 @@ async fn register_and_get_token(app: &axum::Router) -> String {
         .unwrap();
 
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
-    let AuthResponse { token } = body_json(register_response.into_body()).await;
+    let AuthResponse { token, .. } = body_json(register_response.into_body()).await;
     token
 }
 
@@ -800,4 +804,205 @@ async fn protected_routes_reject_token_for_missing_account() {
         .unwrap();
 
     assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+}
+
+async fn login_and_get_tokens(app: &axum::Router) -> AuthResponse {
+    let email = format!("refresh-{}@example.com", uuid::Uuid::new_v4());
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: email.clone(),
+                        password: "hunter2".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let login_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLoginRequest {
+                        email,
+                        password: "hunter2".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(login_response.status(), axum::http::StatusCode::OK);
+    let auth = body_json::<AuthResponse>(login_response.into_body()).await;
+    assert!(!auth.token.is_empty());
+    assert!(!auth.refresh_token.is_empty());
+    auth
+}
+
+#[tokio::test]
+async fn refresh_rotates_tokens() {
+    let app = test_app().await;
+    let AuthResponse {
+        token: _,
+        refresh_token,
+    } = login_and_get_tokens(&app).await;
+
+    let refresh_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRefreshRequest {
+                        refresh_token: refresh_token.clone(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(refresh_response.status(), axum::http::StatusCode::OK);
+    let AuthResponse {
+        token: new_token,
+        refresh_token: new_refresh_token,
+    } = body_json(refresh_response.into_body()).await;
+    assert!(!new_token.is_empty());
+    assert!(!new_refresh_token.is_empty());
+    assert_ne!(refresh_token, new_refresh_token);
+
+    let reuse_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRefreshRequest { refresh_token }).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        reuse_response.status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", format!("Bearer {new_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list_response.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn logout_revokes_refresh_token() {
+    let app = test_app().await;
+    let AuthResponse { refresh_token, .. } = login_and_get_tokens(&app).await;
+
+    let logout_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLogoutRequest {
+                        refresh_token: refresh_token.clone(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(logout_response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    let refresh_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRefreshRequest { refresh_token }).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        refresh_response.status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn expired_refresh_token_is_rejected() {
+    let (app, db) = test_app_with_db().await;
+    let AuthResponse { refresh_token, .. } = login_and_get_tokens(&app).await;
+
+    use crate::entity::{RefreshToken, refresh_token};
+    use crate::refresh_token::hash_token;
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+
+    let record = RefreshToken::find()
+        .filter(refresh_token::Column::TokenHash.eq(hash_token(&refresh_token)))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active: refresh_token::ActiveModel = record.into();
+    active.expires_at = Set(Utc::now() - Duration::minutes(1));
+    active.update(&db).await.unwrap();
+
+    let refresh_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRefreshRequest { refresh_token }).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        refresh_response.status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
 }

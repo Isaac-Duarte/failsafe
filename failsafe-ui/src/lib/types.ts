@@ -10,6 +10,15 @@ export interface AuthLoginRequest {
 
 export interface AuthResponse {
   token: string
+  refresh_token: string
+}
+
+export interface AuthRefreshRequest {
+  refresh_token: string
+}
+
+export interface AuthLogoutRequest {
+  refresh_token: string
 }
 
 export interface AccountResponse {

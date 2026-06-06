@@ -1,23 +1,36 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRegisterRequest, AuthResponse, DeviceInfo, DeviceListResponse,
-    DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse, PairingRedeemRequest,
+    AuthLoginRequest, AuthRefreshRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
+    PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
+use reqwest::RequestBuilder;
+use tokio::sync::Mutex;
 
+use crate::credentials::Credentials;
 use crate::error::DaemonError;
 
 #[derive(Clone)]
 pub struct ServerClient {
     base_url: String,
-    auth_token: String,
+    credentials: Arc<Mutex<Credentials>>,
+    credentials_path: Option<PathBuf>,
     http: reqwest::Client,
 }
 
 impl ServerClient {
-    pub fn new(base_url: String, auth_token: String) -> Self {
+    pub fn new(
+        base_url: String,
+        credentials: Credentials,
+        credentials_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_owned(),
-            auth_token,
+            credentials: Arc::new(Mutex::new(credentials)),
+            credentials_path,
             http: reqwest::Client::new(),
         }
     }
@@ -63,13 +76,13 @@ impl ServerClient {
     }
 
     pub async fn create_pairing_code(&self) -> Result<PairingCreateResponse, DaemonError> {
-        let url = format!("{}/api/v1/pairing", self.base_url);
         let response = self
-            .http
-            .post(url)
-            .bearer_auth(&self.auth_token)
-            .json(&serde_json::json!({}))
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .post(format!("{}/api/v1/pairing", self.base_url))
+                    .bearer_auth(token)
+                    .json(&serde_json::json!({}))
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("create pairing code failed: {error}")))?;
 
@@ -95,13 +108,14 @@ impl ServerClient {
     }
 
     pub async fn upsert_device(&self, request: DeviceUpsertRequest) -> Result<(), DaemonError> {
-        let url = format!("{}/api/v1/devices/{}", self.base_url, request.device_id);
+        let device_id = request.device_id;
         let response = self
-            .http
-            .put(url)
-            .bearer_auth(&self.auth_token)
-            .json(&request)
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .put(format!("{}/api/v1/devices/{device_id}", self.base_url))
+                    .bearer_auth(token)
+                    .json(&request)
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("device upsert failed: {error}")))?;
 
@@ -109,12 +123,15 @@ impl ServerClient {
     }
 
     pub async fn heartbeat_device(&self, device_id: DeviceId) -> Result<(), DaemonError> {
-        let url = format!("{}/api/v1/devices/{}/heartbeat", self.base_url, device_id);
         let response = self
-            .http
-            .post(url)
-            .bearer_auth(&self.auth_token)
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .post(format!(
+                        "{}/api/v1/devices/{device_id}/heartbeat",
+                        self.base_url
+                    ))
+                    .bearer_auth(token)
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("device heartbeat failed: {error}")))?;
 
@@ -126,13 +143,13 @@ impl ServerClient {
         device_id: DeviceId,
         request: DevicePatchRequest,
     ) -> Result<DeviceInfo, DaemonError> {
-        let url = format!("{}/api/v1/devices/{}", self.base_url, device_id);
         let response = self
-            .http
-            .patch(url)
-            .bearer_auth(&self.auth_token)
-            .json(&request)
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .patch(format!("{}/api/v1/devices/{device_id}", self.base_url))
+                    .bearer_auth(token)
+                    .json(&request)
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("device patch failed: {error}")))?;
 
@@ -140,12 +157,12 @@ impl ServerClient {
     }
 
     pub async fn delete_device(&self, device_id: DeviceId) -> Result<(), DaemonError> {
-        let url = format!("{}/api/v1/devices/{}", self.base_url, device_id);
         let response = self
-            .http
-            .delete(url)
-            .bearer_auth(&self.auth_token)
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .delete(format!("{}/api/v1/devices/{device_id}", self.base_url))
+                    .bearer_auth(token)
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("device delete failed: {error}")))?;
 
@@ -161,16 +178,79 @@ impl ServerClient {
     }
 
     pub async fn list_devices(&self) -> Result<DeviceListResponse, DaemonError> {
-        let url = format!("{}/api/v1/devices", self.base_url);
         let response = self
-            .http
-            .get(url)
-            .bearer_auth(&self.auth_token)
-            .send()
+            .send_authenticated(|token| {
+                self.http
+                    .get(format!("{}/api/v1/devices", self.base_url))
+                    .bearer_auth(token)
+            })
             .await
             .map_err(|error| DaemonError::Config(format!("list devices failed: {error}")))?;
 
         parse_json_response(response).await
+    }
+
+    async fn send_authenticated(
+        &self,
+        mut build: impl FnMut(&str) -> RequestBuilder,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let token = self.auth_token().await;
+        let response = build(&token).send().await?;
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED
+            && self.refresh_tokens().await.unwrap_or(false)
+        {
+            let token = self.auth_token().await;
+            return build(&token).send().await;
+        }
+
+        Ok(response)
+    }
+
+    async fn auth_token(&self) -> String {
+        self.credentials.lock().await.auth_token.clone()
+    }
+
+    async fn refresh_tokens(&self) -> Result<bool, DaemonError> {
+        let refresh_token = {
+            let credentials = self.credentials.lock().await;
+            credentials.refresh_token.clone()
+        };
+
+        let Some(refresh_token) = refresh_token else {
+            return Ok(false);
+        };
+
+        let url = format!("{}/api/v1/auth/refresh", self.base_url);
+        let response = self
+            .http
+            .post(url)
+            .json(&AuthRefreshRequest { refresh_token })
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("token refresh failed: {error}")))?;
+
+        if !response.status().is_success() {
+            return Ok(false);
+        }
+
+        let AuthResponse {
+            token,
+            refresh_token,
+        } = response
+            .json::<AuthResponse>()
+            .await
+            .map_err(|error| DaemonError::Config(format!("failed to decode refresh response: {error}")))?;
+
+        let mut credentials = self.credentials.lock().await;
+        credentials.auth_token = token;
+        credentials.refresh_token = Some(refresh_token);
+
+        if let Some(path) = &self.credentials_path {
+            credentials.save(path)?;
+        }
+
+        Ok(true)
     }
 }
 

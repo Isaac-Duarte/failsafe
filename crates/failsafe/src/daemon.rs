@@ -432,13 +432,16 @@ impl Daemon {
     }
 }
 
-pub async fn register_local_device(config: &Config, auth_token: String) -> Result<(), DaemonError> {
+pub async fn register_local_device(
+    config: &Config,
+    credentials: crate::credentials::Credentials,
+) -> Result<(), DaemonError> {
     let bundle = create_transport_bundle(config, PeerAddressBook::default()).await?;
     let iroh_public_key = bundle
         .iroh_public_key
         .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
 
-    let client = ServerClient::new(config.server_url.clone(), auth_token);
+    let client = ServerClient::new(config.server_url.clone(), credentials, None);
     client
         .upsert_device(DeviceUpsertRequest {
             device_id: config.device_id,

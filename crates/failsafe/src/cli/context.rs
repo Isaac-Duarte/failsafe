@@ -28,9 +28,13 @@ pub async fn server_client_from_config(
 ) -> Result<ServerClient, DaemonError> {
     let path = config_path_or_default(config_path)?;
     let config = load_config(&path, server_url, true)?;
+    let credentials_path = Credentials::default_path().ok_or_else(|| {
+        DaemonError::Config("could not determine credentials path for this platform".to_owned())
+    })?;
     let credentials = Credentials::load_or_error()?;
     Ok(ServerClient::new(
         config.server_url.clone(),
-        credentials.auth_token,
+        credentials,
+        Some(credentials_path),
     ))
 }

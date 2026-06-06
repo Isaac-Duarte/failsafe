@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::entity::{PairingCode, pairing_code};
 use crate::error::{ServerError, ServerResult};
 use crate::pairing::{generate_code, normalize_code};
+use crate::refresh_token::issue_auth_response;
 use crate::state::AppState;
 
 const PAIRING_TTL_MINUTES: i64 = 10;
@@ -88,6 +89,5 @@ async fn redeem_pairing_code(
     active.used_at = Set(Some(Utc::now()));
     active.update(&state.db).await?;
 
-    let token = state.jwt.issue(account_id)?;
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(issue_auth_response(&state, account_id).await?))
 }

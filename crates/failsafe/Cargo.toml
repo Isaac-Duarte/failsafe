@@ -21,7 +21,7 @@ crossterm.workspace = true
 inquire.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "sync"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

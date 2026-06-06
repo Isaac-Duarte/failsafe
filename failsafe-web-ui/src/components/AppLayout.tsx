@@ -13,7 +13,8 @@ import {
   Skeleton,
 } from "@failsafe/ui"
 import { useAccount } from "@/hooks/useAccount"
-import { clearToken, isAuthenticated } from "@/lib/auth"
+import { isAuthenticated } from "@/lib/auth"
+import { logout } from "@/lib/api"
 
 export function AppLayout() {
   const location = useLocation()
@@ -24,8 +25,8 @@ export function AppLayout() {
     location.pathname === "/login" || location.pathname === "/register"
   const homeHref = authenticated ? "/devices" : "/login"
 
-  function handleLogout() {
-    clearToken()
+  async function handleLogout() {
+    await logout()
     navigate("/login", { replace: true })
   }
 

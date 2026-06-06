@@ -15,8 +15,15 @@ pub async fn run(
     let path = config_path_or_default(config_path)?;
     let config = load_config(&path, server_url, true)?;
 
+    let credentials_path = Credentials::default_path().ok_or_else(|| {
+        DaemonError::Config("could not determine credentials path for this platform".to_owned())
+    })?;
     let credentials = Credentials::load_or_error()?;
-    let server_client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
+    let server_client = ServerClient::new(
+        config.server_url.clone(),
+        credentials,
+        Some(credentials_path),
+    );
 
     let peers = Arc::new(PeerDirectory::new());
     let devices = server_client.list_devices().await?;

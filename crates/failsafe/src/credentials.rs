@@ -7,6 +7,8 @@ use crate::error::DaemonError;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Credentials {
     pub auth_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
 }
 
 impl Credentials {

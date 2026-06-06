@@ -21,8 +21,15 @@ pub async fn pair(
 
 async fn pair_host(config_path: &Path, server_url: Option<String>) -> Result<(), DaemonError> {
     let config = load_config(config_path, server_url, true)?;
+    let credentials_path = Credentials::default_path().ok_or_else(|| {
+        DaemonError::Config("could not determine credentials path for this platform".to_owned())
+    })?;
     let credentials = Credentials::load_or_error()?;
-    let client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
+    let client = ServerClient::new(
+        config.server_url.clone(),
+        credentials,
+        Some(credentials_path),
+    );
     let response = client.create_pairing_code().await?;
 
     println!("Pairing code: {}", response.code);
@@ -55,13 +62,14 @@ async fn pair_join(
     let credentials_path = Credentials::default_path().ok_or_else(|| {
         DaemonError::Config("could not determine credentials path for this platform".to_owned())
     })?;
-    Credentials {
-        auth_token: response.token.clone(),
-    }
-    .save(&credentials_path)?;
+    let credentials = Credentials {
+        auth_token: response.token,
+        refresh_token: Some(response.refresh_token),
+    };
+    credentials.save(&credentials_path)?;
     config.save(config_path)?;
 
-    register_local_device(&config, response.token).await?;
+    register_local_device(&config, credentials).await?;
 
     println!("Paired successfully.");
     println!("Device ID:   {}", config.device_id);

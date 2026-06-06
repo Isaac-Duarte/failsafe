@@ -9,7 +9,7 @@ import { Button } from "@failsafe/ui"
 import { Input } from "@failsafe/ui"
 import { Label } from "@failsafe/ui"
 import { login } from "@/lib/api"
-import { setToken } from "@/lib/auth"
+import { setTokens } from "@/lib/auth"
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -32,7 +32,7 @@ export function LoginPage() {
 
     try {
       const response = await login({ email, password })
-      setToken(response.token)
+      setTokens(response.token, response.refresh_token)
       navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't sign in")

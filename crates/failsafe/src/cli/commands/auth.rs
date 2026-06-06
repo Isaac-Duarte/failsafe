@@ -24,12 +24,13 @@ pub async fn authenticate(
     let credentials_path = Credentials::default_path().ok_or_else(|| {
         DaemonError::Config("could not determine credentials path for this platform".to_owned())
     })?;
-    Credentials {
-        auth_token: response.token.clone(),
-    }
-    .save(&credentials_path)?;
+    let credentials = Credentials {
+        auth_token: response.token,
+        refresh_token: Some(response.refresh_token),
+    };
+    credentials.save(&credentials_path)?;
 
-    register_local_device(&config, response.token).await?;
+    register_local_device(&config, credentials).await?;
 
     info!(
         credentials = %credentials_path.display(),

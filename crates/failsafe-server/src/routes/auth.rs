@@ -1,13 +1,16 @@
 use crate::auth::{hash_password, verify_password};
 use crate::entity::{Account, account};
 use crate::error::{ServerError, ServerResult};
+use crate::refresh_token::{self, issue_auth_response};
 use crate::state::AppState;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use chrono::Utc;
 use failsafe_core::api::{
-    AccountId, AccountResponse, AuthLoginRequest, AuthRegisterRequest, AuthResponse,
+    AccountId, AccountResponse, AuthLoginRequest, AuthLogoutRequest, AuthRefreshRequest,
+    AuthRegisterRequest, AuthResponse,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -15,6 +18,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/refresh", post(refresh))
+        .route("/logout", post(logout))
 }
 
 pub fn protected_router() -> Router<AppState> {
@@ -67,8 +72,7 @@ async fn register(
     .insert(&state.db)
     .await?;
 
-    let token = state.jwt.issue(account_id)?;
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(issue_auth_response(&state, account_id).await?))
 }
 
 async fn login(
@@ -83,6 +87,33 @@ async fn login(
 
     verify_password(&request.password, &account.password_hash)?;
 
-    let token = state.jwt.issue(AccountId(account.id))?;
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(
+        issue_auth_response(&state, AccountId(account.id)).await?,
+    ))
+}
+
+async fn refresh(
+    State(state): State<AppState>,
+    Json(request): Json<AuthRefreshRequest>,
+) -> ServerResult<Json<AuthResponse>> {
+    if request.refresh_token.trim().is_empty() {
+        return Err(ServerError::BadRequest(
+            "refresh_token is required".to_owned(),
+        ));
+    }
+
+    Ok(Json(
+        refresh_token::rotate(&state, request.refresh_token.trim()).await?,
+    ))
+}
+
+async fn logout(
+    State(state): State<AppState>,
+    Json(request): Json<AuthLogoutRequest>,
+) -> ServerResult<StatusCode> {
+    if !request.refresh_token.trim().is_empty() {
+        refresh_token::logout(&state, request.refresh_token.trim()).await?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }

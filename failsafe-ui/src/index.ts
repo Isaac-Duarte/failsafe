@@ -69,6 +69,8 @@ export type {
   AccountResponse,
   ApiError,
   AuthLoginRequest,
+  AuthLogoutRequest,
+  AuthRefreshRequest,
   AuthRegisterRequest,
   AuthResponse,
   DeviceInfo,

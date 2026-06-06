@@ -9,7 +9,7 @@ import { Button } from "@failsafe/ui"
 import { Input } from "@failsafe/ui"
 import { Label } from "@failsafe/ui"
 import { register } from "@/lib/api"
-import { setToken } from "@/lib/auth"
+import { setTokens } from "@/lib/auth"
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -25,7 +25,7 @@ export function RegisterPage() {
 
     try {
       const response = await register({ email, password })
-      setToken(response.token)
+      setTokens(response.token, response.refresh_token)
       navigate("/devices", { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create account")

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AuthError, ServerResult};
 
-const TOKEN_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const TOKEN_TTL: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
