@@ -17,11 +17,11 @@ version = "0.1.0"
 edition = "2024"
 
 [profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 24
-incremental = false
-strip = "symbols"
+opt-level = "z"
+debug = false
+lto = "thin"
+codegen-units = 16
+strip = true
 panic = "abort"
 
 [workspace.dependencies]
