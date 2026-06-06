@@ -4,6 +4,8 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, oneshot};
 use uuid::Uuid;
 
+use crate::payload::SendAck;
+
 pub struct SendCoordinator {
     pending: Mutex<HashMap<Uuid, oneshot::Sender<Result<(), String>>>>,
 }
@@ -30,6 +32,17 @@ impl SendCoordinator {
     pub async fn cancel(&self, transfer_id: Uuid) {
         self.complete(transfer_id, Err("transfer cancelled".to_owned()))
             .await;
+    }
+
+    pub async fn complete_ack(&self, ack: SendAck) {
+        let result = if ack.ok {
+            Ok(())
+        } else {
+            Err(ack
+                .error
+                .unwrap_or_else(|| "receiver reported failure".to_owned()))
+        };
+        self.complete(ack.transfer_id, result).await;
     }
 }
 

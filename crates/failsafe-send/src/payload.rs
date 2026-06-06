@@ -38,6 +38,14 @@ pub fn encode_envelope(envelope: &SendEnvelope) -> Vec<u8> {
     serde_json::to_vec(envelope).expect("send envelope is serializable")
 }
 
+pub fn parse_ack(payload: &[u8]) -> Option<SendAck> {
+    let envelope = serde_json::from_slice::<SendEnvelope>(payload).ok()?;
+    match envelope {
+        SendEnvelope::Ack(ack) => Some(ack),
+        SendEnvelope::Transfer(_) => None,
+    }
+}
+
 pub fn decode_envelope(bytes: &[u8]) -> Result<SendEnvelope, FeatureError> {
     serde_json::from_slice(bytes).map_err(|error| {
         FeatureError::Failed(

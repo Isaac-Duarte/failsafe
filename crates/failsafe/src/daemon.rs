@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use failsafe_clipboard::feature::ClipboardFeature;
 use failsafe_clipboard::limits::ClipboardLimits;
-use failsafe_send::{SendCoordinator, SendFeature};
+use failsafe_send::{parse_ack, SendCoordinator, SendFeature};
 use failsafe_transport::blobs::MockBlobTransfer;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
@@ -383,10 +383,38 @@ impl Daemon {
         let mut sync_interval = tokio::time::interval(Duration::from_secs(30));
         sync_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        let (inbound_tx, mut inbound_rx) = mpsc::channel::<failsafe_core::message::FeatureMessage>(256);
+        let transport_reader = self.transport.clone();
+        tokio::spawn(async move {
+            loop {
+                match transport_reader.recv().await {
+                    Ok(message) => {
+                        if inbound_tx.send(message).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!("transport reader stopped: {error}");
+                        break;
+                    }
+                }
+            }
+        });
+
         loop {
             tokio::select! {
-                result = self.transport.recv() => {
-                    let message = result?;
+                message = inbound_rx.recv() => {
+                    let Some(message) = message else {
+                        return Err(DaemonError::Config(
+                            "inbound message channel closed".to_owned(),
+                        ));
+                    };
+                    if message.feature == FeatureId::FileSend {
+                        if let Some(ack) = parse_ack(&message.payload) {
+                            self.send_coordinator.complete_ack(ack).await;
+                            continue;
+                        }
+                    }
                     self.registry.dispatch(message).await?;
                 }
                 session = async {
@@ -434,6 +462,7 @@ impl Daemon {
                     } else {
                         *shared_features.write().await = self.local_features.clone();
                         self.ensure_shell_service().await;
+                        self.ensure_port_service().await;
                     }
                 }
                 result = tokio::signal::ctrl_c() => {

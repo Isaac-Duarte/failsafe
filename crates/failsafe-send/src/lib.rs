@@ -14,4 +14,4 @@ pub use feature::SendFeature;
 pub use files::{collect_file_preview, format_bytes, read_files_from_paths};
 pub use inbound::save_received_files;
 pub use outbound::prepare_send_payload;
-pub use payload::{encode_envelope, SendAck, SendEnvelope, SendPayload};
+pub use payload::{encode_envelope, parse_ack, SendAck, SendEnvelope, SendPayload};
