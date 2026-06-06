@@ -1,15 +1,17 @@
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 mod screen_renderer;
 
 use std::str::FromStr;
 
 use failsafe_core::device::DeviceId;
 use failsafe_screen::ScreenViewerClient;
-use tauri::{async_runtime, AppHandle, Emitter, Manager, RunEvent, State, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+#[cfg(windows)]
+use tauri::{async_runtime, RunEvent, WindowEvent};
 use tokio::sync::Mutex;
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 use tracing::warn;
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 use {
     screen_renderer::{ScreenRenderer, ViewportRect},
     std::sync::Arc,
@@ -17,12 +19,12 @@ use {
 
 struct ScreenShareRuntime {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     renderer: Arc<ScreenRenderer>,
 }
 
 impl ScreenShareRuntime {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     fn new(renderer: Arc<ScreenRenderer>) -> Self {
         Self {
             task: Mutex::new(None),
@@ -30,7 +32,7 @@ impl ScreenShareRuntime {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(windows))]
     fn new() -> Self {
         Self {
             task: Mutex::new(None),
@@ -38,7 +40,7 @@ impl ScreenShareRuntime {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(windows))]
 #[derive(Clone, serde::Serialize)]
 struct ScreenFramePayload {
     jpeg: Vec<u8>,
@@ -76,14 +78,15 @@ fn navigate_to_screen_share(
 
 #[tauri::command]
 fn screen_viewer_mode() -> &'static str {
-    if cfg!(target_os = "linux") {
-        "webview"
-    } else {
+    if cfg!(windows) {
         "gpu"
+    } else {
+        "webview"
     }
 }
 
 #[derive(serde::Deserialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
 struct ViewportBounds {
     x: u32,
     y: u32,
@@ -96,7 +99,7 @@ fn set_screen_viewport(
     runtime: State<'_, ScreenShareRuntime>,
     bounds: ViewportBounds,
 ) -> Result<(), String> {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     {
         runtime.renderer.set_viewport(ViewportRect {
             x: bounds.x,
@@ -105,11 +108,12 @@ fn set_screen_viewport(
             height: bounds.height,
         });
     }
-    let _ = bounds;
+    #[cfg(not(windows))]
+    let _ = runtime;
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn deactivate_renderer(app: &AppHandle, renderer: Arc<ScreenRenderer>) -> Result<(), String> {
     app.run_on_main_thread(move || {
         renderer.deactivate_and_clear();
@@ -137,7 +141,7 @@ async fn start_screen_share(
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     {
         runtime.renderer.set_active(true);
 
@@ -165,7 +169,7 @@ async fn start_screen_share(
         *runtime.task.lock().await = Some(task);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(windows))]
     {
         let app_handle = app.clone();
         let task = tokio::spawn(async move {
@@ -194,8 +198,10 @@ async fn stop_screen_share(
         task.abort();
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     deactivate_renderer(&app, runtime.renderer.clone())?;
+    #[cfg(not(windows))]
+    let _ = app;
 
     Ok(())
 }
@@ -210,7 +216,7 @@ pub fn run() {
             screen_viewer_mode,
         ])
         .setup(|app| {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(windows)]
             {
                 let window = app
                     .get_webview_window("main")
@@ -220,7 +226,7 @@ pub fn run() {
                 app.manage(ScreenShareRuntime::new(Arc::new(renderer)));
             }
 
-            #[cfg(target_os = "linux")]
+            #[cfg(not(windows))]
             {
                 app.manage(ScreenShareRuntime::new());
             }
@@ -236,7 +242,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(windows)]
             if let RunEvent::WindowEvent {
                 event: WindowEvent::Resized(size),
                 ..
@@ -246,5 +252,7 @@ pub fn run() {
                     runtime.renderer.resize(size.width, size.height);
                 }
             }
+            #[cfg(not(windows))]
+            let _ = (app_handle, event);
         });
 }
