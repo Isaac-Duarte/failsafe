@@ -1,5 +1,3 @@
-mod kde_kwin;
-
 use libwayshot_xcap::WayshotConnection;
 use libwayshot_xcap::region::LogicalRegion;
 use scrap::{Capturer, Display};
@@ -7,8 +5,8 @@ use std::io::ErrorKind;
 use tracing::{debug, warn};
 use xcap::Monitor;
 
+use super::kde_kwin::KdeKwinCapturer;
 use super::{CaptureError, CapturedFrame};
-use kde_kwin::KdeKwinCapturer;
 
 pub struct LinuxCapturer {
     backend: LinuxBackend,

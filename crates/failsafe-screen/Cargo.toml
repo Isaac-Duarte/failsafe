@@ -13,9 +13,9 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tracing.workspace = true
 xcap = "0.9"
+zvariant = "5.12.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libwayshot-xcap = "0.3"
-rustix = { version = "1", features = ["pipe", "fs"] }
 scrap = "0.5"
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }

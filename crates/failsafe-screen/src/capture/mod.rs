@@ -1,6 +1,9 @@
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(target_os = "linux")]
+mod kde_kwin;
+
 use thiserror::Error;
 #[cfg(target_os = "linux")]
 use tracing::debug;
@@ -33,7 +36,10 @@ struct XcapCapturer;
 impl ScreenCapturer for XcapCapturer {
     fn capture(&mut self) -> Result<CapturedFrame, CaptureError> {
         let monitors = Monitor::all().map_err(|error| CaptureError::Capture(error.to_string()))?;
-        let monitor = monitors.into_iter().next().ok_or(CaptureError::NoMonitors)?;
+        let monitor = monitors
+            .into_iter()
+            .next()
+            .ok_or(CaptureError::NoMonitors)?;
 
         let image = monitor
             .capture_image()
@@ -71,4 +77,3 @@ pub fn create_capturer() -> Result<Box<dyn ScreenCapturer>, CaptureError> {
     #[cfg(not(target_os = "linux"))]
     Ok(Box::new(XcapCapturer))
 }
-

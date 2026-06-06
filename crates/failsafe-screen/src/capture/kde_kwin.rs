@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{pipe, Read};
 
-use rustix::pipe::pipe;
 use zbus::blocking::{Connection, Proxy};
-use zvariant::{OwnedValue, Value};
+use zvariant::{OwnedFd, OwnedValue, Value};
 
 use super::{CaptureError, CapturedFrame};
 
@@ -17,8 +16,8 @@ pub struct KdeKwinCapturer {
 
 impl KdeKwinCapturer {
     pub fn try_new() -> Result<Self, CaptureError> {
-        let connection = Connection::session()
-            .map_err(|error| CaptureError::Capture(error.to_string()))?;
+        let connection =
+            Connection::session().map_err(|error| CaptureError::Capture(error.to_string()))?;
         let capturer = Self { connection };
         capturer.capture()?;
         Ok(capturer)
@@ -33,14 +32,17 @@ fn capture_via_kwin(connection: &Connection) -> Result<CapturedFrame, CaptureErr
     let proxy = Proxy::new(connection, KWIN_SERVICE, KWIN_PATH, KWIN_INTERFACE)
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
 
-    let (read_end, write_end) =
+    let (mut read_end, write_end) =
         pipe().map_err(|error| CaptureError::Capture(error.to_string()))?;
 
     let mut options: HashMap<&str, Value<'_>> = HashMap::new();
     options.insert("include-cursor", Value::Bool(false));
 
     let reply: HashMap<String, OwnedValue> = proxy
-        .call("CaptureActiveScreen", &(options, write_end))
+        .call(
+            "CaptureActiveScreen",
+            &(options, OwnedFd::from(std::os::fd::OwnedFd::from(write_end))),
+        )
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
 
     let width = map_value_u32(
@@ -60,8 +62,7 @@ fn capture_via_kwin(connection: &Connection) -> Result<CapturedFrame, CaptureErr
     )?;
 
     let mut data = Vec::new();
-    let mut reader = std::fs::File::from(read_end);
-    reader
+    read_end
         .read_to_end(&mut data)
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
 
@@ -82,8 +83,7 @@ fn capture_via_kwin(connection: &Connection) -> Result<CapturedFrame, CaptureErr
 fn map_value_u32(value: &OwnedValue) -> Result<u32, CaptureError> {
     value
         .downcast_ref::<u32>()
-        .copied()
-        .ok_or_else(|| CaptureError::Capture(format!("expected u32 metadata, got {value:?}")))
+        .map_err(|err| CaptureError::Capture(format!("expected u32 metadata, got {value:?} {err}")))
 }
 
 /// KWin returns premultiplied BGRA32 with row padding (`stride` may exceed `width * 4`).
