@@ -53,10 +53,15 @@ pub async fn run_screen_host(mut send: impl AsyncWrite + Unpin) -> Result<(), Sc
 }
 
 fn encode_jpeg(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ScreenHostError> {
+    let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
+    for pixel in rgba.chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+    }
+
     let mut jpeg = Vec::new();
     let encoder = JpegEncoder::new_with_quality(&mut jpeg, JPEG_QUALITY);
     encoder
-        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+        .write_image(&rgb, width, height, ExtendedColorType::Rgb8)
         .map_err(|error| ScreenHostError::Encode(error.to_string()))?;
     Ok(jpeg)
 }
