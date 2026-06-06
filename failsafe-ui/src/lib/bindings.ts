@@ -78,4 +78,3 @@ export type PairingRedeemRequest = {
 	code: string,
 	device: DeviceUpsertRequest | null,
 };
-
