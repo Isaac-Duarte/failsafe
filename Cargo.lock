@@ -2345,8 +2345,6 @@ dependencies = [
  "tokio",
  "tracing",
  "xcap",
- "zbus",
- "zvariant",
 ]
 
 [[package]]

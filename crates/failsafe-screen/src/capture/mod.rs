@@ -1,9 +1,6 @@
 #[cfg(target_os = "linux")]
 mod linux;
 
-#[cfg(target_os = "linux")]
-mod kde_kwin;
-
 use thiserror::Error;
 #[cfg(target_os = "linux")]
 use tracing::debug;
@@ -44,14 +41,11 @@ impl ScreenCapturer for XcapCapturer {
         let image = monitor
             .capture_image()
             .map_err(|error| CaptureError::Image(error.to_string()))?;
-        let width = image.width();
-        let height = image.height();
-        let rgba = image.into_raw();
 
         Ok(CapturedFrame {
-            width,
-            height,
-            rgba,
+            width: image.width(),
+            height: image.height(),
+            rgba: image.into_raw(),
         })
     }
 }
