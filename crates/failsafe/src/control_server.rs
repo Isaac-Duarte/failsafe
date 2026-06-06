@@ -376,7 +376,7 @@ impl ControlServer {
             cancel_child.cancel();
         });
 
-        let (progress_tx, mut progress_rx) = mpsc::channel::<ControlEvent>(256);
+        let (progress_tx, mut progress_rx) = mpsc::channel::<ControlEvent>(1024);
         let progress_writer = tokio::spawn(async move {
             while let Some(event) = progress_rx.recv().await {
                 if write_event(&mut write_half, &event).await.is_err() {

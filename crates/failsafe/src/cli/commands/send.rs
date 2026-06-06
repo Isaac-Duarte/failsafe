@@ -171,7 +171,7 @@ pub async fn send(
                     SendPhase::WaitingForAck => {
                         transfer_total_bytes = bytes_total.max(transfer_total_bytes);
                         progress.set_length(transfer_total_bytes.max(1));
-                        progress.set_position(0);
+                        progress.set_position(transfer_total_bytes);
                         progress.enable_steady_tick(Duration::from_millis(100));
                     }
                     _ => {
@@ -186,6 +186,9 @@ pub async fn send(
             }
             ControlEvent::SendComplete { .. } => {
                 progress.disable_steady_tick();
+                if transfer_total_bytes > 0 {
+                    progress.set_position(transfer_total_bytes);
+                }
                 progress.finish_with_message("done");
                 println!("Sent to {}", target.name);
                 return Ok(());

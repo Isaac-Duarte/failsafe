@@ -496,8 +496,17 @@ async fn import_source_file(
             )));
         };
         match item {
-            AddProgressItem::Size(size) => file_size = size,
+            AddProgressItem::Size(size) => {
+                file_size = size;
+                let _ = progress_tx.send((index, 0)).await;
+            }
             AddProgressItem::CopyProgress(offset) => {
+                let _ = progress_tx.send((index, offset)).await;
+            }
+            AddProgressItem::CopyDone => {
+                let _ = progress_tx.send((index, file_size)).await;
+            }
+            AddProgressItem::OutboardProgress(offset) => {
                 let _ = progress_tx.send((index, offset)).await;
             }
             AddProgressItem::Error(cause) => {
@@ -507,7 +516,6 @@ async fn import_source_file(
                 )));
             }
             AddProgressItem::Done(tag) => break tag,
-            _ => {}
         }
     };
 
