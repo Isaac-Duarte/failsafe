@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::capture::{CaptureError, CapturedFrame, capture_primary_monitor};
+use crate::capture::{CaptureError, CapturedFrame, create_capturer};
 use crate::preprocess::FramePreprocessor;
 use crate::protocol::{
     PACKET_TAG_CONTROL, ProtocolError, decode_control, encode_frame,
@@ -81,6 +81,10 @@ pub async fn run_screen_host(
             .lock()
             .expect("settings lock")
             .clone();
+        let mut capturer = match create_capturer() {
+            Ok(capturer) => capturer,
+            Err(error) => return Err::<(), CaptureError>(error),
+        };
         let mut encoder = FrameEncoder::new(&initial);
         loop {
             if capture_shutdown_rx.try_recv().is_ok() {
@@ -95,17 +99,19 @@ pub async fn run_screen_host(
             let interval = Duration::from_millis(1000 / current.target_fps.max(1));
 
             let started = Instant::now();
-            let frame = match capture_primary_monitor() {
+            let frame = match capturer.capture() {
                 Ok(frame) => frame,
                 Err(error) => return Err::<(), CaptureError>(error),
             };
 
             match encoder.encode_frame(frame, &current) {
-                Ok(jpeg) => {
-                    if frame_tx.blocking_send(jpeg).is_err() {
-                        return Ok(());
+                Ok(jpeg) => match frame_tx.try_send(jpeg) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        warn!("dropping screen frame because viewer is behind");
                     }
-                }
+                    Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
+                },
                 Err(ScreenHostError::Encode(message)) => {
                     warn!("screen encode failed: {message}");
                 }
