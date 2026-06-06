@@ -1222,3 +1222,364 @@ async fn expired_refresh_token_is_rejected() {
         axum::http::StatusCode::UNAUTHORIZED
     );
 }
+
+async fn register_user(app: &axum::Router, email: &str) -> AuthResponse {
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: email.to_owned(),
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    body_json(response.into_body()).await
+}
+
+#[tokio::test]
+async fn totp_setup_enable_and_login_requires_mfa() {
+    let app = test_app().await;
+    let email = format!("mfa-{}@example.com", uuid::Uuid::new_v4());
+    let auth = register_user(&app, &email).await;
+    let token = auth_token(&auth);
+
+    let setup_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/2fa/setup")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(setup_response.status(), axum::http::StatusCode::OK);
+    let TotpSetupResponse { secret, otpauth_uri } =
+        body_json(setup_response.into_body()).await;
+    assert!(otpauth_uri.contains("otpauth://"));
+    assert!(!secret.is_empty());
+
+    let code = crate::totp::current_totp_code(&email, &secret).unwrap();
+    let enable_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/2fa/enable")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&TotpEnableRequest { code }).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(enable_response.status(), axum::http::StatusCode::OK);
+    let TotpEnableResponse { recovery_codes } = body_json(enable_response.into_body()).await;
+    assert_eq!(recovery_codes.len(), 10);
+
+    let login_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLoginRequest {
+                        email: email.clone(),
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), axum::http::StatusCode::OK);
+    let mfa_challenge: AuthResponse = body_json(login_response.into_body()).await;
+    assert!(mfa_challenge.mfa_required);
+    assert!(mfa_challenge.token.is_none());
+    let mfa_token = mfa_challenge
+        .mfa_token
+        .expect("expected mfa token");
+
+    let mfa_code = crate::totp::current_totp_code(&email, &secret).unwrap();
+    let mfa_login_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login/mfa")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthMfaLoginRequest {
+                        mfa_token,
+                        code: mfa_code,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mfa_login_response.status(), axum::http::StatusCode::OK);
+    let session: AuthResponse = body_json(mfa_login_response.into_body()).await;
+    assert!(!auth_token(&session).is_empty());
+}
+
+#[tokio::test]
+async fn recovery_code_can_complete_mfa_login() {
+    let app = test_app().await;
+    let email = format!("recovery-{}@example.com", uuid::Uuid::new_v4());
+    let auth = register_user(&app, &email).await;
+    let token = auth_token(&auth);
+
+    let setup: TotpSetupResponse = body_json(
+        app.clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/2fa/setup")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body(),
+    )
+    .await;
+
+    let code = crate::totp::current_totp_code(&email, &setup.secret).unwrap();
+    let enable: TotpEnableResponse = body_json(
+        app.clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/2fa/enable")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&TotpEnableRequest { code }).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body(),
+    )
+    .await;
+    let recovery_code = enable.recovery_codes[0].clone();
+
+    let mfa_challenge: AuthResponse = body_json(
+        app.clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&AuthLoginRequest {
+                            email: email.clone(),
+                            password: "hunter22".to_owned(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body(),
+    )
+    .await;
+
+    let mfa_login_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login/mfa")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthMfaLoginRequest {
+                        mfa_token: mfa_challenge.mfa_token.unwrap(),
+                        code: recovery_code,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mfa_login_response.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn totp_disable_turns_off_mfa() {
+    let app = test_app().await;
+    let email = format!("disable-{}@example.com", uuid::Uuid::new_v4());
+    let auth = register_user(&app, &email).await;
+    let token = auth_token(&auth);
+
+    let setup: TotpSetupResponse = body_json(
+        app.clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/2fa/setup")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body(),
+    )
+    .await;
+    let code = crate::totp::current_totp_code(&email, &setup.secret).unwrap();
+    body_json::<TotpEnableResponse>(
+        app.clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/2fa/enable")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&TotpEnableRequest { code }).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .into_body(),
+    )
+    .await;
+
+    let disable_code = crate::totp::current_totp_code(&email, &setup.secret).unwrap();
+    let disable_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/2fa/disable")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&TotpDisableRequest {
+                        password: "hunter22".to_owned(),
+                        code: disable_code,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(disable_response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    let login_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLoginRequest {
+                        email,
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), axum::http::StatusCode::OK);
+    let session: AuthResponse = body_json(login_response.into_body()).await;
+    assert!(!session.mfa_required);
+    assert!(session.token.is_some());
+}
+
+#[tokio::test]
+async fn change_password_updates_credentials() {
+    let app = test_app().await;
+    let email = format!("password-{}@example.com", uuid::Uuid::new_v4());
+    let auth = register_user(&app, &email).await;
+    let token = auth_token(&auth);
+
+    let change_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/password")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&ChangePasswordRequest {
+                        current_password: "hunter22".to_owned(),
+                        new_password: "newpass99".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(change_response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    let old_login = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLoginRequest {
+                        email: email.clone(),
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_login.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+    let new_login = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthLoginRequest {
+                        email,
+                        password: "newpass99".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(new_login.status(), axum::http::StatusCode::OK);
+}
