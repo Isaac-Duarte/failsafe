@@ -71,7 +71,7 @@ pub fn create_capturer() -> Result<Box<dyn ScreenCapturer>, CaptureError> {
     {
         let capturer = linux::LinuxCapturer::new()?;
         debug!("linux screen capture backend initialized");
-        return Ok(Box::new(LinuxCapturer(capturer)));
+        Ok(Box::new(LinuxCapturer(capturer)))
     }
 
     #[cfg(not(target_os = "linux"))]

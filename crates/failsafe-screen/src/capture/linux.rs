@@ -125,12 +125,12 @@ impl LinuxCapturer {
             .get_all_outputs()
             .first()
             .ok_or(CaptureError::NoMonitors)?;
-        let region = output.logical_region.clone();
+        let region = output.logical_region;
         let width = region.inner.size.width;
         let height = region.inner.size.height;
 
         let probe = connection
-            .screenshot(region.clone(), false)
+            .screenshot(region, false)
             .map_err(|error| CaptureError::Capture(error.to_string()))?;
         if probe.width() == 0 || probe.height() == 0 {
             return Err(CaptureError::Capture(
@@ -230,7 +230,7 @@ fn capture_wayland_wlroots(
     height: u32,
 ) -> Result<CapturedFrame, CaptureError> {
     let image = connection
-        .screenshot(region.clone(), false)
+        .screenshot(*region, false)
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
     let rgba = image.to_rgba8().into_raw();
 

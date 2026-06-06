@@ -80,11 +80,7 @@ impl ControlServer {
         };
 
         match request {
-            ControlRequest::OpenShell {
-                target,
-                rows,
-                cols,
-            } => {
+            ControlRequest::OpenShell { target, rows, cols } => {
                 self.handle_open_shell(&mut stream, target, rows, cols)
                     .await;
             }
@@ -101,12 +97,7 @@ impl ControlServer {
         rows: u16,
         cols: u16,
     ) {
-        if !self
-            .local_features
-            .read()
-            .await
-            .contains(&FeatureId::Shell)
-        {
+        if !self.local_features.read().await.contains(&FeatureId::Shell) {
             let _ = send_response(
                 stream,
                 &ControlResponse::Error {
@@ -286,7 +277,9 @@ mod tests {
         socket_path: &PathBuf,
         target: DeviceId,
     ) -> Result<UnixStream, DaemonError> {
-        let mut stream = UnixStream::connect(socket_path).await.map_err(DaemonError::Io)?;
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .map_err(DaemonError::Io)?;
         send_request(
             &mut stream,
             &ControlRequest::OpenShell {

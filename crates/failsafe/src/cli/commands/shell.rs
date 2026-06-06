@@ -39,16 +39,19 @@ pub async fn shell(
     }
 
     let (rows, cols) = terminal_size();
-    let mut stream = UnixStream::connect(control_socket_path()?).await.map_err(|error| {
-        if error.kind() == io::ErrorKind::NotFound || error.kind() == io::ErrorKind::ConnectionRefused
-        {
-            DaemonError::Config(
-                "daemon is not running; start it with `failsafe run`".to_owned(),
-            )
-        } else {
-            DaemonError::Io(error)
-        }
-    })?;
+    let mut stream = UnixStream::connect(control_socket_path()?)
+        .await
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound
+                || error.kind() == io::ErrorKind::ConnectionRefused
+            {
+                DaemonError::Config(
+                    "daemon is not running; start it with `failsafe run`".to_owned(),
+                )
+            } else {
+                DaemonError::Io(error)
+            }
+        })?;
 
     send_request(
         &mut stream,

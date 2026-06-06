@@ -2,17 +2,15 @@ use std::sync::Arc;
 
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
+use iroh::PublicKey;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
-use iroh::PublicKey;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
-use crate::iroh::stream::{
-    SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
-};
+use crate::iroh::stream::{SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]

@@ -12,9 +12,9 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
 use failsafe_transport::blobs::BlobTransfer;
+use failsafe_transport::iroh::{ScreenSession, ShellSession};
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
-use failsafe_transport::iroh::{ScreenSession, ShellSession};
 use failsafe_transport::transport::Transport;
 use tokio::sync::{RwLock, mpsc};
 use tracing::info;
@@ -22,10 +22,8 @@ use tracing::info;
 use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
+use crate::screen_service::{handle_incoming_screen, start_screen_acceptor, stop_screen_acceptor};
 use crate::server::ServerClient;
-use crate::screen_service::{
-    handle_incoming_screen, start_screen_acceptor, stop_screen_acceptor,
-};
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
 
@@ -339,9 +337,7 @@ impl Daemon {
         let control_server: Option<Arc<ControlServer>> = self
             .iroh
             .clone()
-            .map(|iroh| {
-                ControlServer::new(iroh, shared_features.clone(), self.peers.clone())
-            })
+            .map(|iroh| ControlServer::new(iroh, shared_features.clone(), self.peers.clone()))
             .transpose()?
             .map(Arc::new);
         let control_listener = match control_server.as_ref() {

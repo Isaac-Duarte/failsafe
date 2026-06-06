@@ -12,8 +12,7 @@ use tracing::{debug, warn};
 use crate::capture::{CaptureError, CapturedFrame, create_capturer};
 use crate::preprocess::FramePreprocessor;
 use crate::protocol::{
-    PACKET_TAG_CONTROL, ProtocolError, decode_control, encode_frame,
-    read_tagged_packet,
+    PACKET_TAG_CONTROL, ProtocolError, decode_control, encode_frame, read_tagged_packet,
 };
 use crate::quality::ScreenSettings;
 
@@ -52,11 +51,8 @@ impl FrameEncoder {
         frame: CapturedFrame,
         settings: &ScreenSettings,
     ) -> Result<Vec<u8>, ScreenHostError> {
-        let (width, height) = crate::preprocess::output_dimensions(
-            frame.width,
-            frame.height,
-            settings.max_width,
-        );
+        let (width, height) =
+            crate::preprocess::output_dimensions(frame.width, frame.height, settings.max_width);
         let rgb = self
             .preprocessor
             .rgba_to_rgb(frame.rgba, frame.width, frame.height)
@@ -77,10 +73,7 @@ pub async fn run_screen_host(
     let capture_settings = settings.clone();
     let capture_shutdown_rx = shutdown_rx;
     let capture_handle = thread::spawn(move || {
-        let initial = capture_settings
-            .lock()
-            .expect("settings lock")
-            .clone();
+        let initial = *capture_settings.lock().expect("settings lock");
         let mut capturer = match create_capturer() {
             Ok(capturer) => capturer,
             Err(error) => return Err::<(), CaptureError>(error),
@@ -91,10 +84,7 @@ pub async fn run_screen_host(
                 return Ok(());
             }
 
-            let current = capture_settings
-                .lock()
-                .expect("settings lock")
-                .clone();
+            let current = *capture_settings.lock().expect("settings lock");
             encoder.sync_settings(&current);
             let interval = Duration::from_millis(1000 / current.target_fps.max(1));
 

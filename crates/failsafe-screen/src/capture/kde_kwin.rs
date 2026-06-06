@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{pipe, Read};
+use std::io::{Read, pipe};
 
 use zbus::blocking::{Connection, Proxy};
 use zvariant::{OwnedFd, OwnedValue, Value};
@@ -41,7 +41,10 @@ fn capture_via_kwin(connection: &Connection) -> Result<CapturedFrame, CaptureErr
     let reply: HashMap<String, OwnedValue> = proxy
         .call(
             "CaptureActiveScreen",
-            &(options, OwnedFd::from(std::os::fd::OwnedFd::from(write_end))),
+            &(
+                options,
+                OwnedFd::from(std::os::fd::OwnedFd::from(write_end)),
+            ),
         )
         .map_err(|error| CaptureError::Capture(error.to_string()))?;
 

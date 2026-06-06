@@ -239,10 +239,9 @@ impl ServerClient {
         let AuthResponse {
             token,
             refresh_token,
-        } = response
-            .json::<AuthResponse>()
-            .await
-            .map_err(|error| DaemonError::Config(format!("failed to decode refresh response: {error}")))?;
+        } = response.json::<AuthResponse>().await.map_err(|error| {
+            DaemonError::Config(format!("failed to decode refresh response: {error}"))
+        })?;
 
         let mut credentials = self.credentials.lock().await;
         credentials.auth_token = token;

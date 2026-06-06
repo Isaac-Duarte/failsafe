@@ -85,17 +85,16 @@ pub(crate) async fn register_device(
 
         if existing.deleted_at.is_some() {
             return match mode {
-                RegisterDeviceMode::Upsert => Err(ServerError::ForbiddenMessage(
-                    "device removed".to_owned(),
-                )),
+                RegisterDeviceMode::Upsert => {
+                    Err(ServerError::ForbiddenMessage("device removed".to_owned()))
+                }
                 RegisterDeviceMode::Pairing => {
                     let now = Utc::now();
                     let mut active: device::ActiveModel = existing.into();
                     active.deleted_at = Set(None);
                     active.name = Set(request.name.trim().to_owned());
                     active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
-                    active.enabled_features =
-                        Set(features_to_json(&request.enabled_features)?);
+                    active.enabled_features = Set(features_to_json(&request.enabled_features)?);
                     active.last_seen = Set(Some(now));
                     Ok(active.update(&state.db).await?)
                 }

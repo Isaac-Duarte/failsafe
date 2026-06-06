@@ -36,7 +36,9 @@ pub fn resolve_device_target(
 ) -> Result<DeviceInfo, DaemonError> {
     let query = query.trim();
     if query.is_empty() {
-        return Err(DaemonError::Config("device name cannot be empty".to_owned()));
+        return Err(DaemonError::Config(
+            "device name cannot be empty".to_owned(),
+        ));
     }
 
     if let Ok(device_id) = DeviceId::from_str(query) {

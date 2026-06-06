@@ -12,9 +12,7 @@ use tracing::{debug, warn};
 use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
 use crate::iroh::protocol::resolve_device;
-use crate::iroh::stream::{
-    SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream,
-};
+use crate::iroh::stream::{SharedScreenAcceptor, SharedShellAcceptor, handle_incoming_bi_stream};
 use crate::transport::TransportError;
 
 #[derive(Debug)]

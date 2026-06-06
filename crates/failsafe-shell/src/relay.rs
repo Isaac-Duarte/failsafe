@@ -61,11 +61,15 @@ pub async fn relay_channels_to_pty(
         Ok(())
     } else {
         read_task.await.unwrap_or_else(|error| {
-            Err(std::io::Error::other(format!("pty read task failed: {error}")))
+            Err(std::io::Error::other(format!(
+                "pty read task failed: {error}"
+            )))
         })
     };
     let write_result = write_task.await.unwrap_or_else(|error| {
-        Err(std::io::Error::other(format!("pty write task failed: {error}")))
+        Err(std::io::Error::other(format!(
+            "pty write task failed: {error}"
+        )))
     });
 
     read_result?;
@@ -109,11 +113,19 @@ mod tests {
 
         let result = tokio::time::timeout(
             Duration::from_secs(1),
-            relay_channels_to_pty(input_rx, output_tx, Box::new(EofReader), Box::new(SinkWriter)),
+            relay_channels_to_pty(
+                input_rx,
+                output_tx,
+                Box::new(EofReader),
+                Box::new(SinkWriter),
+            ),
         )
         .await;
 
-        assert!(result.is_ok(), "relay should not hang waiting for input channel close");
+        assert!(
+            result.is_ok(),
+            "relay should not hang waiting for input channel close"
+        );
         assert!(result.unwrap().is_ok());
 
         // Input channel still open; relay should have exited on PTY EOF alone.

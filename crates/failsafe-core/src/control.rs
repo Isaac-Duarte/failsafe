@@ -94,9 +94,8 @@ pub async fn send_response(
 
 pub async fn recv_request(stream: &mut UnixStream) -> Result<ControlRequest, ControlError> {
     let payload = read_message(stream).await?;
-    serde_json::from_slice(&payload).map_err(|error| {
-        ControlError::Config(format!("failed to decode control request: {error}"))
-    })
+    serde_json::from_slice(&payload)
+        .map_err(|error| ControlError::Config(format!("failed to decode control request: {error}")))
 }
 
 pub async fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {

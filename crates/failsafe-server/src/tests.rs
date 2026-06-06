@@ -153,8 +153,7 @@ async fn register_login_and_manage_devices() {
 
     assert_eq!(login_response.status(), axum::http::StatusCode::OK);
     let AuthResponse {
-        token: login_token,
-        ..
+        token: login_token, ..
     } = body_json(login_response.into_body()).await;
     assert!(!login_token.is_empty());
     assert!(!token.is_empty());
@@ -299,11 +298,7 @@ async fn pairing_code_can_be_redeemed_once() {
                 .uri("/api/v1/pairing/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&PairingRedeemRequest {
-                        code,
-                        device: None,
-                    })
-                    .unwrap(),
+                    serde_json::to_string(&PairingRedeemRequest { code, device: None }).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -649,11 +644,7 @@ async fn redeem_without_device_does_not_restore_deleted_device() {
                 .uri("/api/v1/pairing/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::to_string(&PairingRedeemRequest {
-                        code,
-                        device: None,
-                    })
-                    .unwrap(),
+                    serde_json::to_string(&PairingRedeemRequest { code, device: None }).unwrap(),
                 ))
                 .unwrap(),
         )

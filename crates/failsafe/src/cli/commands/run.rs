@@ -27,8 +27,7 @@ pub async fn run(
 
     let peers = Arc::new(PeerDirectory::new());
     let devices = server_client.list_devices().await?;
-    let address_book =
-        peer_address_book_from_devices(config.device_id, &devices.devices);
+    let address_book = peer_address_book_from_devices(config.device_id, &devices.devices);
     let bundle = create_transport_bundle(&config, address_book).await?;
 
     if let Some(key) = &bundle.iroh_public_key {

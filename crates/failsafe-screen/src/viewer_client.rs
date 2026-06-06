@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use failsafe_core::control::{
-    ControlError, ControlRequest, ControlResponse, control_socket_path, recv_response,
-    send_request,
+    ControlError, ControlRequest, ControlResponse, control_socket_path, recv_response, send_request,
 };
 use failsafe_core::device::DeviceId;
 use thiserror::Error;
@@ -53,11 +52,7 @@ impl ScreenViewerClient {
             }
         })?;
 
-        send_request(
-            &mut stream,
-            &ControlRequest::OpenScreenShare { target },
-        )
-        .await?;
+        send_request(&mut stream, &ControlRequest::OpenScreenShare { target }).await?;
 
         match recv_response(&mut stream).await? {
             ControlResponse::Ready => {}

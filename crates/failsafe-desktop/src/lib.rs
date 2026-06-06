@@ -3,7 +3,7 @@ use std::str::FromStr;
 use failsafe_core::device::DeviceId;
 use failsafe_screen::{ScreenQualityPreset, ScreenViewerClient};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 
 struct ScreenShareRuntime {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,

@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use failsafe_core::api::{AccountId, AuthResponse};
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
     EntityTrait, QueryFilter, Set, TransactionTrait,
@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::auth::JwtService;
-use crate::entity::{refresh_token, Account, RefreshToken};
+use crate::entity::{Account, RefreshToken, refresh_token};
 use crate::error::ServerError;
 use crate::state::AppState;
 
@@ -27,10 +27,7 @@ pub fn generate_raw_token() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub async fn issue(
-    db: &DatabaseConnection,
-    account_id: AccountId,
-) -> Result<String, ServerError> {
+pub async fn issue(db: &DatabaseConnection, account_id: AccountId) -> Result<String, ServerError> {
     let raw = generate_raw_token();
     let now = Utc::now();
     refresh_token::ActiveModel {
@@ -136,10 +133,10 @@ pub async fn logout(state: &AppState, raw: &str) -> Result<(), ServerError> {
         .one(&state.db)
         .await?;
 
-    if let Some(record) = record {
-        if record.revoked_at.is_none() {
-            revoke_record(&state.db, record).await?;
-        }
+    if let Some(record) = record
+        && record.revoked_at.is_none()
+    {
+        revoke_record(&state.db, record).await?;
     }
 
     Ok(())

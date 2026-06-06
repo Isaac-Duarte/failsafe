@@ -1,9 +1,7 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::warn;
 
-use crate::protocol::{
-    PACKET_TAG_CONTROL, ProtocolError, read_tagged_packet, write_tagged_packet,
-};
+use crate::protocol::{PACKET_TAG_CONTROL, ProtocolError, read_tagged_packet, write_tagged_packet};
 
 pub async fn relay_tagged_bidirectional<Ri, Wi, Ro, Wo>(
     mut inbound_read: Ri,

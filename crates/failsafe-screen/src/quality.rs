@@ -3,7 +3,9 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ScreenQualityPreset {
+    #[default]
     Auto,
     #[serde(rename = "1080p")]
     P1080,
@@ -49,12 +51,6 @@ impl ScreenQualityPreset {
                 target_fps: 10,
             },
         }
-    }
-}
-
-impl Default for ScreenQualityPreset {
-    fn default() -> Self {
-        Self::Auto
     }
 }
 

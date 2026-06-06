@@ -51,8 +51,8 @@ pub fn encode_frame(payload: &[u8]) -> Vec<u8> {
 }
 
 pub fn encode_control(message: &ScreenControlMessage) -> Result<Vec<u8>, ProtocolError> {
-    let payload = serde_json::to_vec(message)
-        .map_err(|error| ProtocolError::Control(error.to_string()))?;
+    let payload =
+        serde_json::to_vec(message).map_err(|error| ProtocolError::Control(error.to_string()))?;
     Ok(encode_tagged_packet(PACKET_TAG_CONTROL, &payload))
 }
 
@@ -77,7 +77,11 @@ where
     Ok((tag_buf[0], payload))
 }
 
-pub async fn write_tagged_packet<W>(writer: &mut W, tag: u8, payload: &[u8]) -> Result<(), ProtocolError>
+pub async fn write_tagged_packet<W>(
+    writer: &mut W,
+    tag: u8,
+    payload: &[u8],
+) -> Result<(), ProtocolError>
 where
     W: AsyncWrite + Unpin,
 {

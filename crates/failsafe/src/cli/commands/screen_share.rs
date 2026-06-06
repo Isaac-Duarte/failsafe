@@ -41,14 +41,20 @@ fn launch_desktop_viewer(device_id: DeviceId, device_name: &str) -> Result<(), D
     let desktop_binary = std::env::current_exe()
         .ok()
         .and_then(|path| {
-            path.parent()
-                .map(|dir| dir.join(if cfg!(windows) { "failsafe-desktop.exe" } else { "failsafe-desktop" }))
+            path.parent().map(|dir| {
+                dir.join(if cfg!(windows) {
+                    "failsafe-desktop.exe"
+                } else {
+                    "failsafe-desktop"
+                })
+            })
         })
         .filter(|path| path.exists());
 
     let Some(binary) = desktop_binary else {
         return Err(DaemonError::Config(
-            "failsafe-desktop is not installed; build it with `cargo build -p failsafe-desktop`".to_owned(),
+            "failsafe-desktop is not installed; build it with `cargo build -p failsafe-desktop`"
+                .to_owned(),
         ));
     };
 
