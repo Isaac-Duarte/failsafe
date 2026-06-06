@@ -9,14 +9,13 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
+use failsafe_core::control::{bind_control, ControlListener, ControlStream};
 use tokio::io::AsyncWriteExt;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::control::{
-    ControlRequest, ControlResponse, control_socket_path, recv_request, remove_stale_socket,
-    send_response,
+    ControlRequest, ControlResponse, control_socket_path, recv_request, send_response,
 };
 use crate::error::DaemonError;
 use crate::shell_service::run_outgoing_shell;
@@ -56,15 +55,11 @@ impl ControlServer {
         }
     }
 
-    pub async fn bind(&self) -> Result<UnixListener, DaemonError> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(DaemonError::Io)?;
-        }
-        remove_stale_socket(&self.path).await?;
-        UnixListener::bind(&self.path).map_err(DaemonError::Io)
+    pub async fn bind(&self) -> Result<ControlListener, DaemonError> {
+        bind_control(&self.path).await.map_err(DaemonError::Control)
     }
 
-    pub async fn handle_connection(&self, mut stream: UnixStream) {
+    pub async fn handle_connection(&self, mut stream: ControlStream) {
         let request = match recv_request(&mut stream).await {
             Ok(request) => request,
             Err(error) => {
@@ -99,7 +94,7 @@ impl ControlServer {
 
     async fn handle_open_shell(
         &self,
-        stream: &mut UnixStream,
+        stream: &mut ControlStream,
         target: DeviceId,
         rows: u16,
         cols: u16,
@@ -178,7 +173,7 @@ impl ControlServer {
 
     async fn handle_open_port_forward(
         &self,
-        stream: &mut UnixStream,
+        stream: &mut ControlStream,
         target: DeviceId,
         local_port: u16,
         remote_port: u16,
@@ -229,7 +224,7 @@ impl ControlServer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::collections::HashMap;
     use std::time::Duration;

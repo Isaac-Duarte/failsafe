@@ -1,9 +1,10 @@
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 pub use failsafe_core::control::{ControlRequest, ControlResponse};
+use failsafe_core::control::ControlError;
+use failsafe_core::control::ControlStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
 use crate::error::DaemonError;
@@ -12,8 +13,22 @@ pub fn control_socket_path() -> Result<PathBuf, DaemonError> {
     failsafe_core::control::control_socket_path().map_err(DaemonError::Control)
 }
 
+pub fn map_control_connect_error(error: ControlError) -> DaemonError {
+    match &error {
+        ControlError::Io(io_error)
+            if io_error.kind() == io::ErrorKind::NotFound
+                || io_error.kind() == io::ErrorKind::ConnectionRefused =>
+        {
+            DaemonError::Config(
+                "daemon is not running; start it with `failsafe run`".to_owned(),
+            )
+        }
+        _ => DaemonError::Control(error),
+    }
+}
+
 pub async fn send_request(
-    stream: &mut UnixStream,
+    stream: &mut ControlStream,
     request: &ControlRequest,
 ) -> Result<(), DaemonError> {
     failsafe_core::control::send_request(stream, request)
@@ -21,14 +36,14 @@ pub async fn send_request(
         .map_err(DaemonError::Control)
 }
 
-pub async fn recv_response(stream: &mut UnixStream) -> Result<ControlResponse, DaemonError> {
+pub async fn recv_response(stream: &mut ControlStream) -> Result<ControlResponse, DaemonError> {
     failsafe_core::control::recv_response(stream)
         .await
         .map_err(DaemonError::Control)
 }
 
 pub async fn send_response(
-    stream: &mut UnixStream,
+    stream: &mut ControlStream,
     response: &ControlResponse,
 ) -> Result<(), DaemonError> {
     failsafe_core::control::send_response(stream, response)
@@ -36,7 +51,7 @@ pub async fn send_response(
         .map_err(DaemonError::Control)
 }
 
-pub async fn recv_request(stream: &mut UnixStream) -> Result<ControlRequest, DaemonError> {
+pub async fn recv_request(stream: &mut ControlStream) -> Result<ControlRequest, DaemonError> {
     failsafe_core::control::recv_request(stream)
         .await
         .map_err(DaemonError::Control)
@@ -48,7 +63,7 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), DaemonError> {
         .map_err(DaemonError::Control)
 }
 
-pub async fn relay_terminal_io(stream: &mut UnixStream) -> Result<(), DaemonError> {
+pub async fn relay_terminal_io(stream: &mut ControlStream) -> Result<(), DaemonError> {
     let (mut stream_read, mut stream_write) = tokio::io::split(stream);
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(32);
     let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(32);
