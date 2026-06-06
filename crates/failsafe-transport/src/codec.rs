@@ -2,7 +2,7 @@ use failsafe_core::message::FeatureMessage;
 
 use crate::transport::TransportError;
 
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 pub fn encode(message: &FeatureMessage) -> Result<Vec<u8>, TransportError> {
     let payload =

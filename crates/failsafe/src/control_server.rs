@@ -12,9 +12,9 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    SendCoordinator, SendEnvelope, SendProgressReporter, cancel_all_incomplete_receives,
+    SendCoordinator, SendProgressReporter, cancel_all_incomplete_receives,
     cancel_all_incomplete_sends, encode_envelope, eprint_send, mark_send_complete,
-    mark_send_failed, prepare_send_payload, send_ack_timeout,
+    mark_send_failed, plan_transfer_envelopes, prepare_send_payload, send_ack_timeout,
 };
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
@@ -432,19 +432,25 @@ impl ControlServer {
             }
 
             let local_id = self.transport.local_device_id();
-            let envelope = SendEnvelope::Transfer(payload);
-            let transfer_message = FeatureMessage::new(
-                local_id,
-                target,
-                FeatureId::FileSend,
-                encode_envelope(&envelope),
+            let transfer_envelopes = plan_transfer_envelopes(local_id, target, payload);
+            debug!(
+                %transfer_id,
+                messages = transfer_envelopes.len(),
+                "sending transfer metadata"
             );
-            debug!(%transfer_id, "sending transfer metadata message");
-            self.transport
-                .send(transfer_message)
-                .await
-                .map_err(|error| error.to_string())?;
-            debug!(%transfer_id, "transfer metadata message sent");
+            for envelope in transfer_envelopes {
+                let transfer_message = FeatureMessage::new(
+                    local_id,
+                    target,
+                    FeatureId::FileSend,
+                    encode_envelope(&envelope),
+                );
+                self.transport
+                    .send(transfer_message)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            debug!(%transfer_id, "transfer metadata sent");
 
             progress
                 .emit(

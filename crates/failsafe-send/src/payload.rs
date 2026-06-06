@@ -21,6 +21,28 @@ pub struct SendPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendTransferHeader {
+    pub version: u32,
+    pub transfer_id: Uuid,
+    pub sender_name: String,
+    pub collection_hash: String,
+    pub bytes_total: u64,
+    pub entry_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendTransferChunk {
+    pub transfer_id: Uuid,
+    pub chunk_index: u32,
+    pub entries: Vec<FileEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendTransferEnd {
+    pub transfer_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SendAck {
     pub transfer_id: Uuid,
     pub ok: bool,
@@ -42,6 +64,9 @@ pub struct SendProgress {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SendEnvelope {
     Transfer(SendPayload),
+    TransferHeader(SendTransferHeader),
+    TransferChunk(SendTransferChunk),
+    TransferEnd(SendTransferEnd),
     Ack(SendAck),
     Progress(SendProgress),
 }
@@ -54,7 +79,11 @@ pub fn parse_ack(payload: &[u8]) -> Option<SendAck> {
     let envelope = serde_json::from_slice::<SendEnvelope>(payload).ok()?;
     match envelope {
         SendEnvelope::Ack(ack) => Some(ack),
-        SendEnvelope::Transfer(_) | SendEnvelope::Progress(_) => None,
+        SendEnvelope::Transfer(_)
+        | SendEnvelope::TransferHeader(_)
+        | SendEnvelope::TransferChunk(_)
+        | SendEnvelope::TransferEnd(_)
+        | SendEnvelope::Progress(_) => None,
     }
 }
 

@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::coordinator::SendCoordinator;
 use crate::inbound::receive_dir;
 use crate::log::eprint_send;
+use crate::manifest::ChunkedTransfer;
 use crate::notify::notify_files_received;
 use crate::payload::{
     SEND_PAYLOAD_VERSION, SendAck, SendEnvelope, SendProgress, decode_envelope, encode_envelope,
@@ -33,6 +34,7 @@ pub struct SendFeature {
     transport: Arc<dyn Transport>,
     coordinator: Arc<SendCoordinator>,
     receive_in_progress: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
+    pending_chunked_transfers: Arc<Mutex<HashMap<Uuid, ChunkedTransfer>>>,
 }
 
 impl SendFeature {
@@ -48,6 +50,7 @@ impl SendFeature {
             transport,
             coordinator,
             receive_in_progress: Arc::new(Mutex::new(HashMap::new())),
+            pending_chunked_transfers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -58,6 +61,7 @@ impl SendFeature {
             transport: self.transport.clone(),
             coordinator: self.coordinator.clone(),
             receive_in_progress: self.receive_in_progress.clone(),
+            pending_chunked_transfers: self.pending_chunked_transfers.clone(),
         }
     }
 
@@ -419,6 +423,28 @@ impl SendFeature {
             );
         }
     }
+
+    fn spawn_transfer_handler(&self, from: DeviceId, payload: crate::payload::SendPayload) {
+        let blob_transfer = self.blob_transfer.clone();
+        let limits = self.limits;
+        let transport = self.transport.clone();
+        let coordinator = self.coordinator.clone();
+        let receive_in_progress = self.receive_in_progress.clone();
+        let pending_chunked_transfers = self.pending_chunked_transfers.clone();
+        tokio::spawn(async move {
+            let feature = SendFeature {
+                blob_transfer,
+                limits,
+                transport,
+                coordinator,
+                receive_in_progress,
+                pending_chunked_transfers,
+            };
+            if let Err(error) = feature.handle_transfer(from, payload).await {
+                error!(%error, "file transfer handler failed");
+            }
+        });
+    }
 }
 
 #[async_trait]
@@ -452,24 +478,46 @@ impl Feature for SendFeature {
         let envelope = decode_envelope(&message.payload)?;
         match envelope {
             SendEnvelope::Transfer(payload) => {
-                let from = message.from;
-                let blob_transfer = self.blob_transfer.clone();
-                let limits = self.limits;
-                let transport = self.transport.clone();
-                let coordinator = self.coordinator.clone();
-                let receive_in_progress = self.receive_in_progress.clone();
-                tokio::spawn(async move {
-                    let feature = SendFeature {
-                        blob_transfer,
-                        limits,
-                        transport,
-                        coordinator,
-                        receive_in_progress,
-                    };
-                    if let Err(error) = feature.handle_transfer(from, payload).await {
-                        error!(%error, "file transfer handler failed");
-                    }
-                });
+                self.spawn_transfer_handler(message.from, payload);
+                Ok(())
+            }
+            SendEnvelope::TransferHeader(header) => {
+                let transfer_id = header.transfer_id;
+                self.pending_chunked_transfers
+                    .lock()
+                    .await
+                    .insert(transfer_id, ChunkedTransfer::new(header));
+                Ok(())
+            }
+            SendEnvelope::TransferChunk(chunk) => {
+                let mut pending = self.pending_chunked_transfers.lock().await;
+                let Some(state) = pending.get_mut(&chunk.transfer_id) else {
+                    return Err(FeatureError::Failed(
+                        FeatureId::FileSend,
+                        format!(
+                            "received transfer chunk for unknown transfer {}",
+                            chunk.transfer_id
+                        ),
+                    ));
+                };
+                state.push_chunk(chunk.chunk_index, chunk.entries);
+                Ok(())
+            }
+            SendEnvelope::TransferEnd(end) => {
+                let Some(state) = self.pending_chunked_transfers.lock().await.remove(&end.transfer_id)
+                else {
+                    return Err(FeatureError::Failed(
+                        FeatureId::FileSend,
+                        format!(
+                            "received transfer end for unknown transfer {}",
+                            end.transfer_id
+                        ),
+                    ));
+                };
+                let payload = state.into_payload().map_err(|error| {
+                    FeatureError::Failed(FeatureId::FileSend, error)
+                })?;
+                self.spawn_transfer_handler(message.from, payload);
                 Ok(())
             }
             SendEnvelope::Ack(ack) => self.handle_ack(ack).await,
