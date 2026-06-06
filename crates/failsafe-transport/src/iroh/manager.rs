@@ -153,6 +153,15 @@ async fn dial_peers(
             continue;
         };
 
+        if endpoint_addr.id == endpoint.id() {
+            warn!(
+                %device,
+                %address,
+                "skipping peer with same iroh endpoint as this device; remove the stale device from the server or re-pair it"
+            );
+            continue;
+        }
+
         match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
             Ok(connection) => {
                 if let Err(error) = register_dialed_connection(

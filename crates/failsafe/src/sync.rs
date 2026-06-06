@@ -17,6 +17,20 @@ pub fn find_self_device(self_id: DeviceId, devices: &[DeviceInfo]) -> Option<&De
     devices.iter().find(|device| device.device_id == self_id)
 }
 
+pub fn peer_address_book_from_devices(
+    self_id: DeviceId,
+    devices: &[DeviceInfo],
+) -> PeerAddressBook {
+    let mut addresses = HashMap::new();
+    for device in devices {
+        if device.device_id == self_id {
+            continue;
+        }
+        addresses.insert(device.device_id, device.iroh_public_key.clone());
+    }
+    PeerAddressBook::from_map(addresses)
+}
+
 pub async fn apply_self_from_server(
     self_id: DeviceId,
     devices: &[DeviceInfo],

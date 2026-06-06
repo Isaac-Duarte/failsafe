@@ -4,6 +4,7 @@ use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
+use iroh::PublicKey;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -19,6 +20,7 @@ pub struct FailsafeProtocol {
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    local_endpoint_id: PublicKey,
     shell_acceptor: SharedShellAcceptor,
     screen_acceptor: SharedScreenAcceptor,
 }
@@ -28,6 +30,7 @@ impl FailsafeProtocol {
         pool: Arc<ConnectionPool>,
         inbox: mpsc::Sender<FeatureMessage>,
         address_state: SharedAddressState,
+        local_endpoint_id: PublicKey,
         shell_acceptor: SharedShellAcceptor,
         screen_acceptor: SharedScreenAcceptor,
     ) -> Self {
@@ -35,6 +38,7 @@ impl FailsafeProtocol {
             pool,
             inbox,
             address_state,
+            local_endpoint_id,
             shell_acceptor,
             screen_acceptor,
         }
@@ -43,6 +47,11 @@ impl FailsafeProtocol {
 
 impl ProtocolHandler for FailsafeProtocol {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if connection.remote_id() == self.local_endpoint_id {
+            debug!("ignoring inbound connection from local endpoint");
+            return Ok(());
+        }
+
         let device = match register_outbound_connection(&connection, &self.address_state) {
             Ok(device) => device,
             Err(error) => {
@@ -99,7 +108,7 @@ pub(crate) fn resolve_device(
         .copied()
         .ok_or_else(|| {
             TransportError::Codec(format!(
-                "unknown remote endpoint {remote_id}; waiting for server peer sync"
+                "unknown remote endpoint {remote_id}; not in peer address book — if this repeats, remove stale devices from the server or re-pair the connecting device so its iroh key matches"
             ))
         })
 }

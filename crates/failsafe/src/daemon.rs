@@ -433,7 +433,7 @@ impl Daemon {
 }
 
 pub async fn register_local_device(config: &Config, auth_token: String) -> Result<(), DaemonError> {
-    let bundle = create_transport_bundle(config).await?;
+    let bundle = create_transport_bundle(config, PeerAddressBook::default()).await?;
     let iroh_public_key = bundle
         .iroh_public_key
         .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
@@ -449,7 +449,10 @@ pub async fn register_local_device(config: &Config, auth_token: String) -> Resul
         .await
 }
 
-pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle, DaemonError> {
+pub async fn create_transport_bundle(
+    config: &Config,
+    address_book: PeerAddressBook,
+) -> Result<TransportBundle, DaemonError> {
     let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
         DaemonError::Config("could not determine iroh secret key path".to_owned())
     })?;
@@ -462,7 +465,7 @@ pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle,
             device_id: config.device_id,
             secret_key_path,
             blob_store_path,
-            address_book: PeerAddressBook::default(),
+            address_book,
         })
         .await?,
     );
@@ -481,7 +484,9 @@ pub async fn create_transport_bundle(config: &Config) -> Result<TransportBundle,
 }
 
 pub async fn create_transport(config: &Config) -> Result<Arc<dyn Transport>, DaemonError> {
-    Ok(create_transport_bundle(config).await?.transport)
+    Ok(create_transport_bundle(config, PeerAddressBook::default())
+        .await?
+        .transport)
 }
 
 #[cfg(test)]

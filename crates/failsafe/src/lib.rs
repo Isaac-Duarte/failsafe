@@ -17,3 +17,4 @@ pub use daemon::{
 };
 pub use error::DaemonError;
 pub use server::ServerClient;
+pub use sync::peer_address_book_from_devices;

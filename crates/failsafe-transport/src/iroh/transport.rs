@@ -74,10 +74,12 @@ impl IrohTransport {
         let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
         let screen_acceptor: SharedScreenAcceptor = Arc::new(Mutex::new(None));
 
+        let local_endpoint_id = endpoint.id();
         let failsafe_protocol = FailsafeProtocol::new(
             pool.clone(),
             inbox_tx.clone(),
             address_state.clone(),
+            local_endpoint_id,
             shell_acceptor.clone(),
             screen_acceptor.clone(),
         );

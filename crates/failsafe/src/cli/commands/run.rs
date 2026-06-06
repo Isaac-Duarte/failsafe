@@ -6,6 +6,7 @@ use failsafe_core::peer::PeerDirectory;
 use tracing::info;
 
 use crate::cli::context::{config_path_or_default, load_config};
+use failsafe::sync::peer_address_book_from_devices;
 
 pub async fn run(
     config_path: Option<PathBuf>,
@@ -18,7 +19,10 @@ pub async fn run(
     let server_client = ServerClient::new(config.server_url.clone(), credentials.auth_token);
 
     let peers = Arc::new(PeerDirectory::new());
-    let bundle = create_transport_bundle(&config).await?;
+    let devices = server_client.list_devices().await?;
+    let address_book =
+        peer_address_book_from_devices(config.device_id, &devices.devices);
+    let bundle = create_transport_bundle(&config, address_book).await?;
 
     if let Some(key) = &bundle.iroh_public_key {
         info!(iroh_public_key = %key, "iroh endpoint ready");
