@@ -8,7 +8,6 @@ pub struct FramePreprocessor {
     cached_dst_width: u32,
     cached_dst_height: u32,
     dst_image: Option<Image<'static>>,
-    dst_rgba_scratch: Vec<u8>,
     rgb_scratch: Vec<u8>,
 }
 
@@ -25,7 +24,6 @@ impl FramePreprocessor {
             cached_dst_width: 0,
             cached_dst_height: 0,
             dst_image: None,
-            dst_rgba_scratch: Vec::new(),
             rgb_scratch: Vec::new(),
         }
     }

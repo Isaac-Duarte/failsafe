@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
@@ -74,11 +75,13 @@ pub async fn run_screen_host(
 ) -> Result<(), ScreenHostError> {
     debug!("screen host started");
     let settings = Arc::new(Mutex::new(ScreenSettings::default()));
+    let shutdown = Arc::new(AtomicBool::new(false));
     let latest_frame: Arc<Mutex<Option<CapturedFrame>>> = Arc::new(Mutex::new(None));
     let (frame_tx, mut frame_rx) = async_mpsc::channel(1);
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
     let capture_settings = settings.clone();
+    let capture_shutdown = shutdown.clone();
     let capture_shutdown_rx = shutdown_rx;
     let capture_latest = latest_frame.clone();
     let capture_handle = thread::spawn(move || {
@@ -87,7 +90,9 @@ pub async fn run_screen_host(
             Err(error) => return Err::<(), CaptureError>(error),
         };
         loop {
-            if capture_shutdown_rx.try_recv().is_ok() {
+            if capture_shutdown.load(Ordering::Relaxed)
+                || capture_shutdown_rx.try_recv().is_ok()
+            {
                 return Ok(());
             }
 
@@ -120,6 +125,7 @@ pub async fn run_screen_host(
     });
 
     let encode_settings = settings.clone();
+    let encode_shutdown = shutdown.clone();
     let encode_latest = latest_frame;
     let encode_handle = thread::spawn(move || {
         let initial = *encode_settings.lock().expect("settings lock");
@@ -132,6 +138,10 @@ pub async fn run_screen_host(
         };
 
         loop {
+            if encode_shutdown.load(Ordering::Relaxed) {
+                break;
+            }
+
             let frame = {
                 let mut slot = encode_latest.lock().expect("latest frame lock");
                 slot.take()
@@ -204,6 +214,7 @@ pub async fn run_screen_host(
     }
 
     let _ = shutdown_tx.send(());
+    shutdown.store(true, Ordering::Relaxed);
     control_task.abort();
 
     match capture_handle.join() {
