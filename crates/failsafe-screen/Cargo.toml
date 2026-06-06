@@ -4,12 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bytemuck = { version = "1", features = ["derive"] }
+fast_image_resize = "5"
 failsafe-core.workspace = true
 image.workspace = true
-pollster = "0.4"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tracing.workspace = true
-wgpu = "24"
 xcap = "0.9"
