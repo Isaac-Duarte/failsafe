@@ -3,6 +3,7 @@ import { Pencil, Trash2 } from "lucide-react"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { formatFeatureLabel } from "@/lib/features"
 import { formatRelativeTime } from "@/lib/format"
 import type { DeviceInfo } from "@/lib/types"
 
@@ -46,7 +47,7 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
           ) : (
             device.enabled_features.map((feature) => (
               <Badge key={feature} variant="secondary">
-                {feature}
+                {formatFeatureLabel(feature)}
               </Badge>
             ))
           )}

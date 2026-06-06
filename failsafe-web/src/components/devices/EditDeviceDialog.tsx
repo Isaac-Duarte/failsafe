@@ -15,9 +15,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { updateDevice } from "@/lib/api"
+import { KNOWN_FEATURES, mergeEnabledFeatures } from "@/lib/features"
 import type { DeviceInfo } from "@/lib/types"
-
-const KNOWN_FEATURES = ["clipboard"] as const
 
 interface EditDeviceDialogProps {
   device: DeviceInfo | null
@@ -68,7 +67,7 @@ export function EditDeviceDialog({
     try {
       await updateDevice(device.device_id, {
         name,
-        enabled_features: editFeatures,
+        enabled_features: mergeEnabledFeatures(editFeatures),
       })
       toast.success("Device updated")
       onClose()
@@ -96,7 +95,7 @@ export function EditDeviceDialog({
         <DialogHeader>
           <DialogTitle>Edit device</DialogTitle>
           <DialogDescription>
-            Update the display name and which features this device can sync
+            Update the display name and which capabilities this device shares
             with others.
           </DialogDescription>
         </DialogHeader>
@@ -118,22 +117,28 @@ export function EditDeviceDialog({
           <div className="space-y-2">
             <Label>Features</Label>
             <p className="text-xs text-muted-foreground">
-              Controls which features this device can sync with others.
+              Both devices need a feature enabled for it to work between them.
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {KNOWN_FEATURES.map((feature) => (
                 <label
-                  key={feature}
-                  className="flex items-center gap-2 text-sm"
+                  key={feature.id}
+                  className="flex items-start gap-2 text-sm"
                 >
                   <Checkbox
-                    checked={editFeatures.includes(feature)}
+                    className="mt-0.5"
+                    checked={editFeatures.includes(feature.id)}
                     onCheckedChange={(checked) =>
-                      toggleEditFeature(feature, checked === true)
+                      toggleEditFeature(feature.id, checked === true)
                     }
                     disabled={editSaving}
                   />
-                  {feature}
+                  <span className="space-y-0.5">
+                    <span className="block font-medium">{feature.label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {feature.description}
+                    </span>
+                  </span>
                 </label>
               ))}
             </div>

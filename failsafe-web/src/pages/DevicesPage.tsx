@@ -50,8 +50,8 @@ export function DevicesPage() {
         <CardHeader>
           <CardTitle>Registered devices</CardTitle>
           <CardDescription>
-            Devices linked to your account. Feature toggles control which
-            capabilities each device can sync with others.
+            Devices linked to your account. Feature toggles control clipboard
+            sync, remote shell access, and other shared capabilities.
           </CardDescription>
           <CardAction>
             <Button

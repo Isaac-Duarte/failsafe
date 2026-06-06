@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { formatFeatureLabel } from "@/lib/features"
 import { formatRelativeTime } from "@/lib/format"
 import type { DeviceInfo } from "@/lib/types"
 
@@ -50,7 +51,7 @@ export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
                 ) : (
                   device.enabled_features.map((feature) => (
                     <Badge key={feature} variant="secondary">
-                      {feature}
+                      {formatFeatureLabel(feature)}
                     </Badge>
                   ))
                 )}
