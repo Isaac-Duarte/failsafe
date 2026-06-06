@@ -11,6 +11,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "io-util", "net", "rt"] }
 uuid.workspace = true
+specta.workspace = true
 
 [dev-dependencies]
 serde_json = "1"

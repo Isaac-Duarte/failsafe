@@ -1,21 +1,20 @@
+import type { ScreenFramePayload, ScreenQualityPreset } from "@failsafe/ui"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-interface ScreenFrameEvent {
-  jpeg: number[]
-}
+export type { ScreenQualityPreset }
 
-export const SCREEN_QUALITY_PRESETS = [
+export const SCREEN_QUALITY_PRESETS: {
+  value: ScreenQualityPreset
+  label: string
+}[] = [
   { value: "auto", label: "Auto" },
   { value: "1080p", label: "1080p" },
   { value: "720p", label: "720p" },
   { value: "480p", label: "480p" },
   { value: "360p", label: "360p" },
-] as const
-
-export type ScreenQualityPreset =
-  (typeof SCREEN_QUALITY_PRESETS)[number]["value"]
+]
 
 const QUALITY_STORAGE_KEY = "failsafe-screen-quality"
 
@@ -124,7 +123,7 @@ export function useScreenShare(
 
     async function bindListeners() {
       unlisteners.push(
-        await listen<ScreenFrameEvent>("screen-frame", (event) => {
+        await listen<ScreenFramePayload>("screen-frame", (event) => {
           const bytes = new Uint8Array(event.payload.jpeg)
           const blob = new Blob([bytes], { type: "image/jpeg" })
           const nextUrl = URL.createObjectURL(blob)

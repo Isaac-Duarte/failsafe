@@ -1,0 +1,16 @@
+[package]
+name = "failsafe-bindings"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "failsafe-bindings"
+path = "src/main.rs"
+
+[dependencies]
+failsafe-core.workspace = true
+failsafe-screen.workspace = true
+specta.workspace = true
+specta-serde.workspace = true
+specta-typescript.workspace = true

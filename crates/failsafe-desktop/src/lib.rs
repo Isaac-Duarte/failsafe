@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use failsafe_core::device::DeviceId;
-use failsafe_screen::{ScreenQualityPreset, ScreenViewerClient};
+use failsafe_screen::{ScreenFramePayload, ScreenQualityPreset, ScreenViewerClient};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::{mpsc, Mutex};
 
@@ -17,11 +17,6 @@ impl ScreenShareRuntime {
             quality_tx: Mutex::new(None),
         }
     }
-}
-
-#[derive(Clone, serde::Serialize)]
-struct ScreenFramePayload {
-    jpeg: Vec<u8>,
 }
 
 fn launch_args() -> (Option<String>, Option<String>) {

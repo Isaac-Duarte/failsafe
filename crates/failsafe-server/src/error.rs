@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use failsafe_core::api::ApiError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
@@ -48,11 +48,6 @@ pub enum AuthError {
     Jwt(String),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: String,
-}
-
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
@@ -77,7 +72,7 @@ impl IntoResponse for ServerError {
             }
         };
 
-        (status, Json(ErrorBody { error: message })).into_response()
+        (status, Json(ApiError { error: message })).into_response()
     }
 }
 

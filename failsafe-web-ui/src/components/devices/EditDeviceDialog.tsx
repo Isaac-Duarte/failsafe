@@ -16,7 +16,7 @@ import { Input } from "@failsafe/ui"
 import { Label } from "@failsafe/ui"
 import { updateDevice } from "@/lib/api"
 import { KNOWN_FEATURES, mergeEnabledFeatures } from "@failsafe/ui"
-import type { DeviceInfo } from "@failsafe/ui"
+import type { DeviceInfo, FeatureId } from "@failsafe/ui"
 
 interface EditDeviceDialogProps {
   device: DeviceInfo | null
@@ -30,7 +30,7 @@ export function EditDeviceDialog({
   onSaved,
 }: EditDeviceDialogProps) {
   const [editName, setEditName] = useState("")
-  const [editFeatures, setEditFeatures] = useState<string[]>([])
+  const [editFeatures, setEditFeatures] = useState<FeatureId[]>([])
   const [editSaving, setEditSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,7 +42,7 @@ export function EditDeviceDialog({
     }
   }, [device])
 
-  function toggleEditFeature(feature: string, checked: boolean) {
+  function toggleEditFeature(feature: FeatureId, checked: boolean) {
     setEditFeatures((current) =>
       checked
         ? [...current, feature]

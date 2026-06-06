@@ -1,6 +1,9 @@
 {
   "name": "failsafe",
   "private": true,
+  "scripts": {
+    "codegen": "cargo run -p failsafe-bindings"
+  },
   "workspaces": [
     "failsafe-ui",
     "failsafe-web-ui",

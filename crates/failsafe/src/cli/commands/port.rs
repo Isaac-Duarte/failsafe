@@ -100,9 +100,14 @@ pub async fn port(
     }
 
     eprintln!(
-        "Forwarding 127.0.0.1:{} -> {}:{} (tcp). Press Ctrl+C to stop.",
-        port_spec.local_port, target.name, port_spec.remote_port
+        "Listening on 127.0.0.1:{} on this machine.",
+        port_spec.local_port
     );
+    eprintln!(
+        "Connections will be tunneled to 127.0.0.1:{} on {} (a service must already be listening there).",
+        port_spec.remote_port, target.name
+    );
+    eprintln!("Press Ctrl+C to stop.");
 
     let (mut read_half, _write_half) = tokio::io::split(stream);
     let mut buf = [0u8; 1];

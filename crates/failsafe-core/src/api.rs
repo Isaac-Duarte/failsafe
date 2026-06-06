@@ -38,35 +38,35 @@ impl FromStr for AccountId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthRegisterRequest {
     pub email: String,
     pub password: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthLoginRequest {
     pub email: String,
     pub password: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthResponse {
     pub token: String,
     pub refresh_token: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthRefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthLogoutRequest {
     pub refresh_token: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AccountResponse {
     pub email: String,
 }
@@ -76,7 +76,7 @@ pub struct AccountResponse {
 /// On create, all fields are stored. On update, the server only applies
 /// `iroh_public_key` and `last_seen`; use [`DevicePatchRequest`] to change
 /// `name` or `enabled_features`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct DeviceUpsertRequest {
     pub device_id: DeviceId,
     pub name: String,
@@ -84,7 +84,7 @@ pub struct DeviceUpsertRequest {
     pub enabled_features: Vec<FeatureId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct DeviceInfo {
     pub device_id: DeviceId,
     pub name: String,
@@ -94,26 +94,31 @@ pub struct DeviceInfo {
     pub online: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct DeviceListResponse {
     pub devices: Vec<DeviceInfo>,
 }
 
 /// Update server-managed device policy (`name`, `enabled_features`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct DevicePatchRequest {
     pub name: Option<String>,
     pub enabled_features: Option<Vec<FeatureId>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct PairingCreateResponse {
     pub code: String,
     pub expires_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct PairingRedeemRequest {
     pub code: String,
     pub device: Option<DeviceUpsertRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct ApiError {
+    pub error: String,
 }

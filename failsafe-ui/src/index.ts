@@ -74,9 +74,15 @@ export type {
   AuthRefreshRequest,
   AuthRegisterRequest,
   AuthResponse,
+  DeviceId,
   DeviceInfo,
   DeviceListResponse,
   DevicePatchRequest,
+  DeviceUpsertRequest,
+  FeatureId,
   PairingCreateResponse,
-} from "./lib/types"
+  PairingRedeemRequest,
+  ScreenFramePayload,
+  ScreenQualityPreset,
+} from "./lib/bindings"
 export { cn } from "./lib/utils"

@@ -1,3 +1,5 @@
+import type { FeatureId } from "./bindings"
+
 export const KNOWN_FEATURES = [
   {
     id: "clipboard",
@@ -21,7 +23,7 @@ export const KNOWN_FEATURES = [
   },
 ] as const
 
-export type KnownFeatureId = (typeof KNOWN_FEATURES)[number]["id"]
+export type KnownFeatureId = FeatureId
 
 const featureById = new Map(KNOWN_FEATURES.map((feature) => [feature.id, feature]))
 
@@ -37,8 +39,8 @@ export function isKnownFeature(featureId: string): featureId is KnownFeatureId {
   return featureById.has(featureId as KnownFeatureId)
 }
 
-export function mergeEnabledFeatures(selected: string[]): string[] {
-  const knownIds = new Set<string>(KNOWN_FEATURES.map((feature) => feature.id))
+export function mergeEnabledFeatures(selected: FeatureId[]): FeatureId[] {
+  const knownIds = new Set<FeatureId>(KNOWN_FEATURES.map((feature) => feature.id))
   const unknown = selected.filter((feature) => !knownIds.has(feature))
   const known = KNOWN_FEATURES.map((feature) => feature.id).filter((id) =>
     selected.includes(id)

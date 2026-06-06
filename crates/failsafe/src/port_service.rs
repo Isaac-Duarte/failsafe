@@ -4,7 +4,7 @@ use failsafe_core::control::PortProtocol;
 use failsafe_transport::iroh::{IrohTransport, PortSession, relay_port_streams};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 pub async fn start_port_acceptor(iroh: Arc<IrohTransport>) -> mpsc::Receiver<PortSession> {
     let (tx, rx) = mpsc::channel(8);
@@ -29,10 +29,16 @@ pub async fn handle_incoming_port(session: PortSession) {
     let tcp = match TcpStream::connect(("127.0.0.1", remote_port)).await {
         Ok(stream) => stream,
         Err(error) => {
-            warn!(%device, %remote_port, "failed to connect to local port: {error}");
+            warn!(
+                %device,
+                %remote_port,
+                "port forward: nothing listening on 127.0.0.1:{remote_port} on this device: {error}"
+            );
             return;
         }
     };
+
+    info!(%device, %remote_port, "port forward connected to local service");
 
     let (read_half, write_half) = tcp.into_split();
 

@@ -11,7 +11,7 @@ use failsafe_transport::transport::Transport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixListener, UnixStream};
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::control::{
     ControlRequest, ControlResponse, control_socket_path, recv_request, remove_stale_socket,
@@ -337,6 +337,7 @@ impl ControlServer {
         }
 
         debug!(%target, %local_port, %remote_port, "port forward ready, accepting local connections");
+        info!(%local_port, "port forward listening on 127.0.0.1:{local_port}");
 
         let (mut control_read, _control_write) = tokio::io::split(stream);
         let iroh = self.iroh.clone();
