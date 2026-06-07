@@ -15,7 +15,7 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_port::{prepare_outgoing_port_forward, run_outgoing_port_forward};
 use failsafe_send::{
-    SendCoordinator, SendProgressReporter, cancel_all_incomplete_receives,
+    SendCoordinator, SendProgress, SendProgressReporter, cancel_all_incomplete_receives,
     cancel_all_incomplete_sends, encode_envelope, eprint_send, mark_send_complete,
     mark_send_failed, plan_transfer_envelopes, prepare_send_payload, send_ack_timeout,
 };
@@ -23,7 +23,7 @@ use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -320,14 +320,11 @@ impl ControlServer {
         .await;
     }
 
-    async fn handle_send_files(
+    async fn validate_send_preconditions(
         &self,
-        mut stream: ControlStream,
+        stream: &mut ControlStream,
         target: DeviceId,
-        paths: Vec<SendPathSpec>,
-        transfer_id: Uuid,
-        resume: bool,
-    ) {
+    ) -> bool {
         if !self
             .local_features
             .read()
@@ -335,13 +332,13 @@ impl ControlServer {
             .contains(&FeatureId::FileSend)
         {
             let _ = send_response(
-                &mut stream,
+                stream,
                 &ControlResponse::Error {
                     message: "file_send is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
                 },
             )
             .await;
-            return;
+            return false;
         }
 
         if !self
@@ -350,7 +347,7 @@ impl ControlServer {
             .await
         {
             let _ = send_response(
-                &mut stream,
+                stream,
                 &ControlResponse::Error {
                     message: format!(
                         "file_send is not enabled on device {target}; enable it on both devices"
@@ -358,17 +355,86 @@ impl ControlServer {
                 },
             )
             .await;
-            return;
+            return false;
         }
 
         if !self.transport.connected_peers().await.contains(&target) {
             let _ = send_response(
-                &mut stream,
+                stream,
                 &ControlResponse::Error {
                     message: format!("device {target} is offline or unreachable"),
                 },
             )
             .await;
+            return false;
+        }
+
+        true
+    }
+
+    async fn wait_for_send_ack(
+        cancel: &CancellationToken,
+        mut ack_rx: oneshot::Receiver<Result<(), String>>,
+        receive_progress_rx: &mut mpsc::Receiver<SendProgress>,
+        progress: &SendProgressReporter,
+        ack_timeout: std::time::Duration,
+        transfer_id: Uuid,
+        target: DeviceId,
+    ) -> Result<(), String> {
+        info!(%transfer_id, %target, ?ack_timeout, "waiting for receiver acknowledgement");
+        eprint_send(format_args!(
+            " waiting for ack transfer_id={transfer_id} target={target}"
+        ));
+        let ack_deadline = tokio::time::sleep(ack_timeout);
+        tokio::pin!(ack_deadline);
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break Err("transfer cancelled".to_owned()),
+                _ = &mut ack_deadline => {
+                    warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
+                    eprint_send(format_args!(" ack timeout for {transfer_id}"));
+                    break Err("timed out waiting for receiver acknowledgement".to_owned());
+                }
+                ack_result = &mut ack_rx => {
+                    break match ack_result {
+                        Ok(Ok(())) => {
+                            info!(%transfer_id, %target, "receiver acknowledged file transfer");
+                            eprint_send(format_args!(" ack received for {transfer_id}"));
+                            Ok(())
+                        }
+                        Ok(Err(message)) => {
+                            warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
+                            Err(message)
+                        }
+                        Err(_) => {
+                            warn!(%transfer_id, %target, "acknowledgement channel closed before response");
+                            Err("transfer acknowledgement channel closed".to_owned())
+                        }
+                    };
+                }
+                Some(receiver_progress) = receive_progress_rx.recv() => {
+                    progress
+                        .emit(
+                            receiver_progress.phase,
+                            receiver_progress.bytes_done,
+                            receiver_progress.bytes_total,
+                            receiver_progress.current_file,
+                        )
+                        .await;
+                }
+            }
+        }
+    }
+
+    async fn handle_send_files(
+        &self,
+        mut stream: ControlStream,
+        target: DeviceId,
+        paths: Vec<SendPathSpec>,
+        transfer_id: Uuid,
+        resume: bool,
+    ) {
+        if !self.validate_send_preconditions(&mut stream, target).await {
             return;
         }
 
@@ -404,7 +470,7 @@ impl ControlServer {
             write_half
         });
 
-        let (mut ack_rx, mut receive_progress_rx) = self.coordinator.register(transfer_id).await;
+        let (ack_rx, mut receive_progress_rx) = self.coordinator.register(transfer_id).await;
         info!(%transfer_id, %target, resume, "starting file send");
         eprint_send(format_args!(
             " starting send {transfer_id} -> {target} (resume={resume})"
@@ -483,49 +549,16 @@ impl ControlServer {
                 .await;
 
             let ack_timeout = send_ack_timeout(total_bytes);
-            info!(%transfer_id, %target, ?ack_timeout, "waiting for receiver acknowledgement");
-            eprint_send(format_args!(
-                " waiting for ack transfer_id={transfer_id} target={target}"
-            ));
-            let ack_deadline = tokio::time::sleep(ack_timeout);
-            tokio::pin!(ack_deadline);
-            loop {
-                tokio::select! {
-                    _ = cancel.cancelled() => break Err("transfer cancelled".to_owned()),
-                    _ = &mut ack_deadline => {
-                        warn!(%transfer_id, %target, ?ack_timeout, "timed out waiting for receiver acknowledgement");
-                        eprint_send(format_args!(" ack timeout for {transfer_id}"));
-                        break Err("timed out waiting for receiver acknowledgement".to_owned());
-                    }
-                    ack_result = &mut ack_rx => {
-                        break match ack_result {
-                            Ok(Ok(())) => {
-                                info!(%transfer_id, %target, "receiver acknowledged file transfer");
-                                eprint_send(format_args!(" ack received for {transfer_id}"));
-                                Ok(())
-                            }
-                            Ok(Err(message)) => {
-                                warn!(%transfer_id, %target, %message, "receiver reported transfer failure");
-                                Err(message)
-                            }
-                            Err(_) => {
-                                warn!(%transfer_id, %target, "acknowledgement channel closed before response");
-                                Err("transfer acknowledgement channel closed".to_owned())
-                            }
-                        };
-                    }
-                    Some(receiver_progress) = receive_progress_rx.recv() => {
-                        progress
-                            .emit(
-                                receiver_progress.phase,
-                                receiver_progress.bytes_done,
-                                receiver_progress.bytes_total,
-                                receiver_progress.current_file,
-                            )
-                            .await;
-                    }
-                }
-            }
+            Self::wait_for_send_ack(
+                &cancel,
+                ack_rx,
+                &mut receive_progress_rx,
+                &progress,
+                ack_timeout,
+                transfer_id,
+                target,
+            )
+            .await
         }
         .await;
 
