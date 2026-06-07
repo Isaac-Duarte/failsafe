@@ -3,8 +3,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use failsafe::DaemonError;
+use failsafe_core::api::DeviceInfo;
 use failsafe_core::control::connect_control;
-use failsafe_core::control::{ControlEvent, SendPhase, send_phase_label};
+use failsafe_core::control::{ControlEvent, ControlStream, SendPhase, send_phase_label};
+use failsafe_core::device::DeviceId;
 use failsafe_send::{
     collect_file_preview, format_bytes, list_incomplete_sends, load_send_state, prepare_send_paths,
 };
@@ -53,22 +55,12 @@ pub async fn send(
     let client = server_client_from_config(Some(path), server_url).await?;
     let response = client.list_devices().await?;
 
-    let target = match (device, target_device) {
-        (Some(name), _) => resolve_device_target(&name, config.device_id, &response.devices)?,
-        (None, Some(device_id)) => {
-            let device = response
-                .devices
-                .iter()
-                .find(|entry| entry.device_id == device_id)
-                .ok_or_else(|| {
-                    DaemonError::Config(format!(
-                        "resume target device {device_id} is not in your device list"
-                    ))
-                })?;
-            resolve_device_target(&device.name, config.device_id, &response.devices)?
-        }
-        (None, None) => select_device_interactive(config.device_id, &response.devices)?,
-    };
+    let target = resolve_send_target(
+        device,
+        target_device,
+        config.device_id,
+        &response.devices,
+    )?;
 
     if !target.online {
         return Err(DaemonError::Config(format!(
@@ -80,41 +72,19 @@ pub async fn send(
     let previews = collect_file_preview(&paths).map_err(DaemonError::Config)?;
     let total_bytes: u64 = previews.iter().map(|preview| preview.size).sum();
 
-    if resume_send {
-        println!("Resuming send {transfer_id}");
-    }
-
-    println!("Files to send:");
-    for preview in &previews {
-        println!("  {} ({})", preview.name, format_bytes(preview.size));
-    }
-    println!(
-        "Total: {} ({} files)",
-        format_bytes(total_bytes),
-        previews.len()
-    );
-
-    if !yes {
-        if !io::stdin().is_terminal() {
-            return Err(DaemonError::Config(
-                "confirmation required when stdin is not a terminal; pass --yes".to_owned(),
-            ));
-        }
-
-        let confirmed = Confirm::new(&format!(
-            "Send {} file(s) ({}) to {}?",
-            previews.len(),
-            format_bytes(total_bytes),
-            target.name
-        ))
-        .with_default(false)
-        .prompt()
-        .map_err(|error| DaemonError::Config(error.to_string()))?;
-
-        if !confirmed {
-            println!("cancelled");
-            return Ok(());
-        }
+    let preview_sizes: Vec<_> = previews
+        .iter()
+        .map(|preview| (preview.name.clone(), preview.size))
+        .collect();
+    if !confirm_send(
+        resume_send,
+        transfer_id,
+        &preview_sizes,
+        total_bytes,
+        &target.name,
+        yes,
+    )? {
+        return Ok(());
     }
 
     let mut stream = connect_control(&control_socket_path()?)
@@ -132,18 +102,130 @@ pub async fn send(
     )
     .await?;
 
-    match recv_response(&mut stream).await? {
-        ControlResponse::Ready => {}
-        ControlResponse::CancelTransfers { .. } => {
-            return Err(DaemonError::Config(
-                "unexpected cancel transfers response".to_owned(),
-            ));
+    expect_ready_response(&mut stream).await?;
+
+    run_send_progress_loop(
+        &mut stream,
+        transfer_id,
+        total_bytes,
+        &target.name,
+    )
+    .await
+}
+
+fn resolve_send_target(
+    device: Option<String>,
+    target_device: Option<DeviceId>,
+    local_device_id: DeviceId,
+    devices: &[DeviceInfo],
+) -> Result<DeviceInfo, DaemonError> {
+    match (device, target_device) {
+        (Some(name), _) => resolve_device_target(&name, local_device_id, devices),
+        (None, Some(device_id)) => {
+            let device = devices
+                .iter()
+                .find(|entry| entry.device_id == device_id)
+                .ok_or_else(|| {
+                    DaemonError::Config(format!(
+                        "resume target device {device_id} is not in your device list"
+                    ))
+                })?;
+            resolve_device_target(&device.name, local_device_id, devices)
         }
-        ControlResponse::Error { message } => {
-            return Err(DaemonError::Config(message));
-        }
+        (None, None) => select_device_interactive(local_device_id, devices),
+    }
+}
+
+fn require_tty_or_yes(yes: bool) -> Result<(), DaemonError> {
+    if !yes && !io::stdin().is_terminal() {
+        return Err(DaemonError::Config(
+            "confirmation required when stdin is not a terminal; pass --yes".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn confirm_send(
+    resume_send: bool,
+    transfer_id: Uuid,
+    previews: &[(String, u64)],
+    total_bytes: u64,
+    target_name: &str,
+    yes: bool,
+) -> Result<bool, DaemonError> {
+    if resume_send {
+        println!("Resuming send {transfer_id}");
     }
 
+    println!("Files to send:");
+    for (name, size) in previews {
+        println!("  {name} ({})", format_bytes(*size));
+    }
+    println!(
+        "Total: {} ({} files)",
+        format_bytes(total_bytes),
+        previews.len()
+    );
+
+    if yes {
+        return Ok(true);
+    }
+
+    require_tty_or_yes(false)?;
+
+    let confirmed = Confirm::new(&format!(
+        "Send {} file(s) ({}) to {}?",
+        previews.len(),
+        format_bytes(total_bytes),
+        target_name
+    ))
+    .with_default(false)
+    .prompt()
+    .map_err(|error| DaemonError::Config(error.to_string()))?;
+
+    if !confirmed {
+        println!("cancelled");
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+async fn expect_ready_response(stream: &mut ControlStream) -> Result<(), DaemonError> {
+    match recv_response(stream).await? {
+        ControlResponse::Ready => Ok(()),
+        ControlResponse::CancelTransfers { .. } => Err(DaemonError::Config(
+            "unexpected cancel transfers response".to_owned(),
+        )),
+        ControlResponse::Error { message } => Err(DaemonError::Config(message)),
+    }
+}
+
+async fn expect_cancel_transfers_response(stream: &mut ControlStream) -> Result<(), DaemonError> {
+    match recv_response(stream).await? {
+        ControlResponse::CancelTransfers { sends, receives } => {
+            if sends == 0 && receives == 0 {
+                println!("No incomplete transfers.");
+            } else {
+                println!(
+                    "Cancelled {sends} incomplete send(s) and {receives} incomplete receive(s)."
+                );
+            }
+            Ok(())
+        }
+        ControlResponse::Ready => Err(DaemonError::Config(
+            "unexpected ready response for cancel transfers".to_owned(),
+        )),
+        ControlResponse::Error { message } => Err(DaemonError::Config(message)),
+    }
+}
+
+async fn run_send_progress_loop(
+    stream: &mut ControlStream,
+    transfer_id: Uuid,
+    total_bytes: u64,
+    target_name: &str,
+) -> Result<(), DaemonError> {
     let progress = ProgressBar::new(total_bytes.max(1));
     progress.set_style(
         ProgressStyle::with_template(
@@ -157,7 +239,7 @@ pub async fn send(
     let mut transfer_total_bytes = total_bytes;
 
     loop {
-        let event = read_event(&mut stream)
+        let event = read_event(stream)
             .await
             .map_err(DaemonError::Control)?;
         match event {
@@ -201,7 +283,7 @@ pub async fn send(
                     progress.set_position(transfer_total_bytes);
                 }
                 progress.finish_with_message("done");
-                println!("Sent to {}", target.name);
+                println!("Sent to {target_name}");
                 return Ok(());
             }
             ControlEvent::SendFailed { message } => {
@@ -221,11 +303,7 @@ pub async fn send(
 
 async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
     if !yes {
-        if !io::stdin().is_terminal() {
-            return Err(DaemonError::Config(
-                "confirmation required when stdin is not a terminal; pass --yes".to_owned(),
-            ));
-        }
+        require_tty_or_yes(false)?;
 
         let confirmed = Confirm::new("Cancel all incomplete sends and receives?")
             .with_default(false)
@@ -244,22 +322,7 @@ async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
 
     send_request(&mut stream, &ControlRequest::CancelTransfers).await?;
 
-    match recv_response(&mut stream).await? {
-        ControlResponse::CancelTransfers { sends, receives } => {
-            if sends == 0 && receives == 0 {
-                println!("No incomplete transfers.");
-            } else {
-                println!(
-                    "Cancelled {sends} incomplete send(s) and {receives} incomplete receive(s)."
-                );
-            }
-            Ok(())
-        }
-        ControlResponse::Ready => Err(DaemonError::Config(
-            "unexpected ready response for cancel transfers".to_owned(),
-        )),
-        ControlResponse::Error { message } => Err(DaemonError::Config(message)),
-    }
+    expect_cancel_transfers_response(&mut stream).await
 }
 
 async fn list_incomplete() -> Result<(), DaemonError> {
