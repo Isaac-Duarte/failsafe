@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use failsafe_core::path::write_named_files;
 
 use super::ClipboardIoError;
 
@@ -13,30 +15,8 @@ pub async fn write_received_files(
         ClipboardIoError::Unavailable("clipboard cache dir unavailable".to_owned())
     })?;
     let session = base.join(uuid::Uuid::new_v4().to_string());
-    tokio::fs::create_dir_all(&session)
+
+    write_named_files(&session, files)
         .await
-        .map_err(|error| ClipboardIoError::Unavailable(error.to_string()))?;
-
-    let mut paths = Vec::with_capacity(files.len());
-    for (name, data) in files {
-        let path = session.join(sanitize_filename(name));
-        tokio::fs::write(&path, data)
-            .await
-            .map_err(|error| ClipboardIoError::Unavailable(error.to_string()))?;
-        paths.push(path);
-    }
-
-    Ok(paths)
-}
-
-fn sanitize_filename(name: &str) -> String {
-    let candidate = Path::new(name)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("file");
-    if candidate.is_empty() {
-        "file".to_owned()
-    } else {
-        candidate.to_owned()
-    }
+        .map_err(|error| ClipboardIoError::Unavailable(error.to_string()))
 }

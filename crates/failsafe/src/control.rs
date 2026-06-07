@@ -7,8 +7,6 @@ pub use failsafe_core::control::{
     ControlEvent, ControlRequest, ControlResponse, SendPhase, control_token_path,
     read_control_token, read_event, send_phase_label, write_event,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use crate::error::DaemonError;
 
 pub fn control_socket_path() -> Result<PathBuf, DaemonError> {
@@ -75,42 +73,16 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), DaemonError> {
 }
 
 pub async fn relay_terminal_io(stream: &mut ControlStream) -> Result<(), DaemonError> {
-    let (mut stream_read, mut stream_write) = tokio::io::split(stream);
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
-    let mut socket_buf = [0u8; 4096];
-    let mut stdin_buf = [0u8; 256];
-
-    loop {
-        tokio::select! {
-            read = stream_read.read(&mut socket_buf) => {
-                let read = read.map_err(DaemonError::Io)?;
-                if read == 0 {
-                    break;
-                }
-                stdout
-                    .write_all(&socket_buf[..read])
-                    .await
-                    .map_err(DaemonError::Io)?;
-                stdout.flush().await.map_err(DaemonError::Io)?;
-            }
-            read = stdin.read(&mut stdin_buf) => {
-                let read = read.map_err(DaemonError::Io)?;
-                if read == 0 {
-                    break;
-                }
-                stream_write
-                    .write_all(&stdin_buf[..read])
-                    .await
-                    .map_err(DaemonError::Io)?;
-                stream_write
-                    .flush()
-                    .await
-                    .map_err(DaemonError::Io)?;
-            }
-        }
-    }
-
-    let _ = stream_write.shutdown().await;
-    Ok(())
+    let (stream_read, stream_write) = tokio::io::split(stream);
+    failsafe_core::io::relay_bidirectional(
+        stream_read,
+        stream_write,
+        4096,
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        256,
+        DaemonError::Io,
+        true,
+    )
+    .await
 }

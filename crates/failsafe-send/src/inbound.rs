@@ -1,6 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::Local;
+use failsafe_core::path::write_named_files;
 use uuid::Uuid;
 
 pub fn downloads_base_dir() -> Option<PathBuf> {
@@ -27,20 +28,10 @@ pub async fn save_received_files(
 ) -> Result<Vec<PathBuf>, String> {
     let dir = receive_dir(sender_name, transfer_id)
         .ok_or_else(|| "downloads directory unavailable".to_owned())?;
-    tokio::fs::create_dir_all(&dir)
+
+    write_named_files(&dir, files)
         .await
-        .map_err(|error| format!("failed to create receive dir: {error}"))?;
-
-    let mut paths = Vec::with_capacity(files.len());
-    for (name, data) in files {
-        let path = dir.join(sanitize_filename(name));
-        tokio::fs::write(&path, data)
-            .await
-            .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
-        paths.push(path);
-    }
-
-    Ok(paths)
+        .map_err(|error| format!("failed to write received files: {error}"))
 }
 
 fn sanitize_path_component(value: &str) -> String {
@@ -58,18 +49,6 @@ fn sanitize_path_component(value: &str) -> String {
             }
         })
         .collect()
-}
-
-fn sanitize_filename(name: &str) -> String {
-    let candidate = Path::new(name)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("file");
-    if candidate.is_empty() {
-        "file".to_owned()
-    } else {
-        candidate.to_owned()
-    }
 }
 
 #[cfg(test)]
