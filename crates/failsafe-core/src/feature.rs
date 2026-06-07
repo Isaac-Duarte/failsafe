@@ -14,6 +14,7 @@ pub enum FeatureId {
     Shell,
     PortForward,
     FileSend,
+    ScreenShare,
 }
 
 impl FeatureId {
@@ -23,6 +24,7 @@ impl FeatureId {
             FeatureId::Shell,
             FeatureId::PortForward,
             FeatureId::FileSend,
+            FeatureId::ScreenShare,
         ]
     }
 }
@@ -34,6 +36,7 @@ impl fmt::Display for FeatureId {
             Self::Shell => write!(f, "shell"),
             Self::PortForward => write!(f, "port_forward"),
             Self::FileSend => write!(f, "file_send"),
+            Self::ScreenShare => write!(f, "screen_share"),
         }
     }
 }
@@ -51,6 +54,7 @@ impl FromStr for FeatureId {
             "shell" => Ok(Self::Shell),
             "port_forward" => Ok(Self::PortForward),
             "file_send" => Ok(Self::FileSend),
+            "screen_share" => Ok(Self::ScreenShare),
             other => Err(UnknownFeatureId(other.to_owned())),
         }
     }

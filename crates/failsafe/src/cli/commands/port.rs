@@ -93,6 +93,11 @@ pub async fn port(
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }
+        ControlResponse::ScreenList { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected screen list response".to_owned(),
+            ));
+        }
     }
 
     eprintln!(

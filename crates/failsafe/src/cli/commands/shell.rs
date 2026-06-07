@@ -61,6 +61,11 @@ pub async fn shell(
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }
+        ControlResponse::ScreenList { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected screen list response".to_owned(),
+            ));
+        }
     }
 
     if io::stdin().is_terminal() {

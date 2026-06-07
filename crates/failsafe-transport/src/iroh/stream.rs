@@ -10,6 +10,7 @@ use tracing::{debug, warn};
 
 use crate::codec;
 use crate::port;
+use crate::screen;
 use crate::shell;
 use crate::transport::TransportError;
 
@@ -20,6 +21,27 @@ pub type SharedShellAcceptor = Arc<Mutex<Option<ShellAcceptor>>>;
 
 pub type PortAcceptor = mpsc::Sender<PortSession>;
 pub type SharedPortAcceptor = Arc<Mutex<Option<PortAcceptor>>>;
+
+pub struct ScreenListSession {
+    pub from: DeviceId,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
+
+pub struct ScreenStreamSession {
+    pub from: DeviceId,
+    pub screen_id: u32,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
+
+pub enum ScreenSession {
+    List(ScreenListSession),
+    Stream(ScreenStreamSession),
+}
+
+pub type ScreenAcceptor = mpsc::Sender<ScreenSession>;
+pub type SharedScreenAcceptor = Arc<Mutex<Option<ScreenAcceptor>>>;
 
 pub struct ShellSession {
     pub from: DeviceId,
@@ -63,6 +85,7 @@ pub async fn handle_incoming_bi_stream(
     inbox: mpsc::Sender<FeatureMessage>,
     port_acceptor: SharedPortAcceptor,
     shell_acceptor: SharedShellAcceptor,
+    screen_acceptor: SharedScreenAcceptor,
 ) {
     let mut header = [0u8; 4];
     if let Err(error) = read_exact(&mut recv, &mut header).await {
@@ -77,6 +100,16 @@ pub async fn handle_incoming_bi_stream(
 
     if shell::is_shell_handshake(&header) {
         try_accept_shell_stream(header, recv, send, shell_acceptor, device).await;
+        return;
+    }
+
+    if screen::is_screen_list_handshake(&header) {
+        try_accept_screen_list_stream(recv, send, screen_acceptor, device).await;
+        return;
+    }
+
+    if screen::is_screen_stream_handshake(&header) {
+        try_accept_screen_stream(header, recv, send, screen_acceptor, device).await;
         return;
     }
 
@@ -116,6 +149,63 @@ async fn try_accept_port_stream(
         session,
         "rejected port stream: port acceptor not registered",
         "port acceptor closed",
+    )
+    .await;
+}
+
+async fn try_accept_screen_list_stream(
+    recv: RecvStream,
+    send: SendStream,
+    screen_acceptor: SharedScreenAcceptor,
+    device: DeviceId,
+) {
+    let session = ScreenListSession {
+        from: device,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        screen_acceptor,
+        device,
+        ScreenSession::List(session),
+        "rejected screen list stream: screen acceptor not registered",
+        "screen acceptor closed",
+    )
+    .await;
+}
+
+async fn try_accept_screen_stream(
+    header: [u8; 4],
+    mut recv: RecvStream,
+    send: SendStream,
+    screen_acceptor: SharedScreenAcceptor,
+    device: DeviceId,
+) {
+    let mut tail = [0u8; 4];
+    if let Err(error) = read_exact(&mut recv, &mut tail).await {
+        warn!(%device, "screen stream missing screen id: {error}");
+        return;
+    }
+    let mut init = [0u8; screen::SCREEN_STREAM_INIT_LEN];
+    init[..4].copy_from_slice(&header);
+    init[4..].copy_from_slice(&tail);
+    let Some(screen_id) = screen::parse_screen_stream_init(&init) else {
+        warn!(%device, "screen stream has invalid init");
+        return;
+    };
+
+    let session = ScreenStreamSession {
+        from: device,
+        screen_id,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        screen_acceptor,
+        device,
+        ScreenSession::Stream(session),
+        "rejected screen stream: screen acceptor not registered",
+        "screen acceptor closed",
     )
     .await;
 }
@@ -329,6 +419,38 @@ pub async fn relay_shell_to_channels(
     tokio::select! {
         result = input_to_stream => result?,
         result = stream_to_output => result?,
+    }
+    Ok(())
+}
+
+/// Relay bytes from an Iroh receive stream to a local writer (one-way, for screen video).
+pub async fn relay_recv_to_writer<W>(
+    mut recv: RecvStream,
+    mut output: W,
+) -> Result<(), TransportError>
+where
+    W: AsyncWrite + Unpin,
+{
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let read = recv
+            .read(&mut buf)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+        let Some(read) = read else {
+            break;
+        };
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buf[..read])
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+        output
+            .flush()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
     }
     Ok(())
 }

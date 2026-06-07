@@ -15,7 +15,7 @@ use failsafe_core::registry::FeatureRegistry;
 use failsafe_send::{SendCoordinator, SendFeature, parse_ack};
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::blobs::MockBlobTransfer;
-use failsafe_transport::iroh::{PortSession, ShellSession};
+use failsafe_transport::iroh::{PortSession, ScreenSession, ShellSession};
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
 use failsafe_transport::transport::Transport;
@@ -26,6 +26,9 @@ use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
 use crate::server::ServerClient;
+use crate::screen_service::{
+    handle_incoming_screen, start_screen_acceptor, stop_screen_acceptor,
+};
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
 use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
@@ -83,6 +86,7 @@ pub struct Daemon {
     send_limits: ClipboardLimits,
     shell_sessions: Option<mpsc::Receiver<ShellSession>>,
     port_sessions: Option<mpsc::Receiver<PortSession>>,
+    screen_sessions: Option<mpsc::Receiver<ScreenSession>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -225,6 +229,7 @@ impl DaemonBuilder {
             send_limits: ClipboardLimits::unlimited(),
             shell_sessions: None,
             port_sessions: None,
+            screen_sessions: None,
             config_path: None,
             config: None,
         })
@@ -365,6 +370,17 @@ impl Daemon {
         .await;
     }
 
+    async fn ensure_screen_service(&mut self) {
+        ensure_acceptor_service(
+            &self.iroh,
+            self.local_features.contains(&FeatureId::ScreenShare),
+            &mut self.screen_sessions,
+            |iroh| Box::pin(start_screen_acceptor(iroh)),
+            |iroh| Box::pin(stop_screen_acceptor(iroh)),
+        )
+        .await;
+    }
+
     async fn handle_transport_message(&mut self, message: FeatureMessage) {
         if message.feature == FeatureId::FileSend {
             if let Some(ack) = parse_ack(&message.payload) {
@@ -404,6 +420,7 @@ impl Daemon {
             *shared_features.write().await = self.local_features.clone();
             self.ensure_shell_service().await;
             self.ensure_port_service().await;
+            self.ensure_screen_service().await;
         }
         Ok(())
     }
@@ -424,6 +441,7 @@ impl Daemon {
         self.registry.start_enabled().await?;
         self.ensure_shell_service().await;
         self.ensure_port_service().await;
+        self.ensure_screen_service().await;
 
         let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
         let control_server: Option<Arc<ControlServer>> = self
@@ -472,6 +490,11 @@ impl Daemon {
                         tokio::spawn(handle_incoming_port(session));
                     }
                 }
+                screen_session = recv_if_some(&mut self.screen_sessions) => {
+                    if let Some(session) = screen_session {
+                        tokio::spawn(handle_incoming_screen(session));
+                    }
+                }
                 accepted = async {
                     match control_listener.as_ref() {
                         Some(listener) => listener.accept().await.ok(),
@@ -501,6 +524,7 @@ impl Daemon {
         if let Some(iroh) = &self.iroh {
             stop_shell_acceptor(iroh).await;
             stop_port_acceptor(iroh).await;
+            stop_screen_acceptor(iroh).await;
         }
 
         self.shutdown().await

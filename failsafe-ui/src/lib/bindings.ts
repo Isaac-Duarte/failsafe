@@ -80,7 +80,7 @@ export type DeviceUpsertRequest = {
 };
 
 /**  Identifies a sync feature */
-export type FeatureId = "clipboard" | "shell" | "port_forward" | "file_send";
+export type FeatureId = "clipboard" | "shell" | "port_forward" | "file_send" | "screen_share";
 
 export type PairingCreateResponse = {
 	code: string,
@@ -90,6 +90,14 @@ export type PairingCreateResponse = {
 export type PairingRedeemRequest = {
 	code: string,
 	device: DeviceUpsertRequest | null,
+};
+
+/**  A captureable display on a remote device. */
+export type ScreenInfo = {
+	id: number,
+	name: string,
+	width: number,
+	height: number,
 };
 
 export type TotpDisableRequest = {

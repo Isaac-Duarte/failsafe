@@ -16,6 +16,7 @@ failsafe-clipboard.workspace = true
 failsafe-core.workspace = true
 failsafe-port.workspace = true
 failsafe-send.workspace = true
+failsafe-screen = { path = "../failsafe-screen" }
 failsafe-shell.workspace = true
 indicatif.workspace = true
 failsafe-transport = { workspace = true, features = ["iroh", "iroh-blobs"] }
@@ -32,6 +33,12 @@ gethostname = "1"
 serde_json = "1"
 tokio-util.workspace = true
 uuid.workspace = true
+
+[features]
+screen-capture = ["failsafe-screen/scap-capture"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+failsafe-screen = { path = "../failsafe-screen", features = ["scap-capture"] }
 
 [dev-dependencies]
 failsafe-clipboard.workspace = true

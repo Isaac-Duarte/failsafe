@@ -6,6 +6,7 @@ members = [
     "crates/failsafe-core",
     "crates/failsafe-port",
     "crates/failsafe-send",
+    "crates/failsafe-screen",
     "crates/failsafe-shell",
     "crates/failsafe",
     "crates/failsafe-server",
@@ -30,6 +31,7 @@ failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
 failsafe-port = { path = "crates/failsafe-port" }
 failsafe-send = { path = "crates/failsafe-send" }
+failsafe-screen = { path = "crates/failsafe-screen" }
 failsafe-shell = { path = "crates/failsafe-shell" }
 failsafe = { path = "crates/failsafe" }
 failsafe-server = { path = "crates/failsafe-server" }
@@ -64,6 +66,9 @@ http-body-util = "0.1"
 tower = "0.5"
 portable-pty = "0.9"
 crossterm = "0.29"
+scap = "0.1.0-beta.1"
+openh264 = { version = "0.9", features = ["source"] }
+minifb = "0.28"
 inquire = "0.9"
 indicatif = "0.17"
 notify-rust = "4"

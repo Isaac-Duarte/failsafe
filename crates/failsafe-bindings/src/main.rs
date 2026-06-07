@@ -6,6 +6,7 @@ use failsafe_core::api::{
     TotpSetupResponse,
 };
 use failsafe_core::feature::FeatureId;
+use failsafe_core::screen::ScreenInfo;
 use specta::Types;
 use specta_typescript::Typescript;
 
@@ -30,7 +31,8 @@ fn main() {
         .register::<PairingCreateResponse>()
         .register::<PairingRedeemRequest>()
         .register::<ApiError>()
-        .register::<FeatureId>();
+        .register::<FeatureId>()
+        .register::<ScreenInfo>();
 
     let output = concat!(
         env!("CARGO_MANIFEST_DIR"),

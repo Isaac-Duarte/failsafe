@@ -1,0 +1,19 @@
+[package]
+name = "failsafe-screen"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+scap-capture = ["dep:scap"]
+
+[dependencies]
+failsafe-core.workspace = true
+iroh.workspace = true
+openh264 = { workspace = true, features = ["source"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync"] }
+tracing.workspace = true
+minifb.workspace = true
+scap = { workspace = true, optional = true }

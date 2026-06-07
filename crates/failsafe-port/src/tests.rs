@@ -133,6 +133,9 @@ impl ControlServer {
             ControlRequest::CancelTransfers => {
                 panic!("unexpected cancel transfers request in port test");
             }
+            ControlRequest::ListScreens { .. } | ControlRequest::OpenScreenShare { .. } => {
+                panic!("unexpected screen request in port test");
+            }
         }
     }
 }
@@ -178,6 +181,9 @@ async fn open_port_forward_client(
         ControlResponse::Error { message } => panic!("port forward rejected: {message}"),
         ControlResponse::CancelTransfers { .. } => {
             panic!("unexpected cancel transfers response in port test")
+        }
+        ControlResponse::ScreenList { .. } => {
+            panic!("unexpected screen list response in port test")
         }
     }
 }

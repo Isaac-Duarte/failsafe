@@ -21,6 +21,11 @@ export const KNOWN_FEATURES = [
     label: "File Send",
     description: "Receive explicit file transfers from other devices",
   },
+  {
+    id: "screen_share",
+    label: "Screen Share",
+    description: "Share and view screens across devices",
+  },
 ] as const
 
 export type KnownFeatureId = FeatureId

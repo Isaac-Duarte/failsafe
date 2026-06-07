@@ -28,6 +28,8 @@ const SHIPPED_FEATURE_ICONS: Record<string, LucideIcon> = {
   clipboard: Clipboard,
   shell: Terminal,
   port_forward: ArrowLeftRight,
+  file_send: FileInput,
+  screen_share: Monitor,
 }
 
 const ROADMAP_FEATURES = [

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::screen::ScreenInfo;
+
 mod transport;
 
 pub use transport::{
@@ -53,6 +55,13 @@ pub enum ControlRequest {
         resume: bool,
     },
     CancelTransfers,
+    ListScreens {
+        target: crate::device::DeviceId,
+    },
+    OpenScreenShare {
+        target: crate::device::DeviceId,
+        screen_id: u32,
+    },
 }
 
 /// A local file or directory to send, with the archive path the receiver should see.
@@ -107,6 +116,7 @@ pub enum ControlResponse {
     Ready,
     Error { message: String },
     CancelTransfers { sends: usize, receives: usize },
+    ScreenList { screens: Vec<ScreenInfo> },
 }
 
 pub fn control_socket_path() -> Result<PathBuf, ControlError> {

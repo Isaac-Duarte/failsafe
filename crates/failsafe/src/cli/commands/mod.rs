@@ -4,6 +4,7 @@ mod pair;
 mod port;
 mod run;
 mod send;
+mod screen;
 mod shell;
 mod status;
 
@@ -13,5 +14,6 @@ pub use pair::pair;
 pub use port::port;
 pub use run::run;
 pub use send::send;
+pub use screen::screen;
 pub use shell::shell;
 pub use status::status;

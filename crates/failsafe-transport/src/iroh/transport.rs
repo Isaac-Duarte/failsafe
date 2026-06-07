@@ -8,6 +8,7 @@ use failsafe_core::control::PortProtocol;
 use failsafe_core::device::DeviceId;
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer_address::PeerAddressBook;
+use failsafe_core::screen::ScreenInfo;
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
@@ -22,10 +23,13 @@ use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
 use crate::iroh::stream::{
-    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession,
+    PortAcceptor, PortSession, ScreenStreamSession, SharedPortAcceptor, SharedScreenAcceptor,
+    SharedShellAcceptor, ShellAcceptor, ShellSession,
 };
+use crate::iroh::stream::read_exact;
 use crate::peer_updater::PeerAddressUpdater;
 use crate::port;
+use crate::screen;
 use crate::shell;
 use crate::transport::{Transport, TransportError};
 
@@ -40,6 +44,7 @@ pub struct IrohTransport {
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    screen_acceptor: SharedScreenAcceptor,
 }
 
 impl IrohTransport {
@@ -72,6 +77,7 @@ impl IrohTransport {
 
         let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
         let port_acceptor: SharedPortAcceptor = Arc::new(Mutex::new(None));
+        let screen_acceptor: SharedScreenAcceptor = Arc::new(Mutex::new(None));
 
         let local_endpoint_id = endpoint.id();
         let failsafe_protocol = FailsafeProtocol::new(
@@ -82,6 +88,7 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            screen_acceptor.clone(),
         );
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
@@ -97,6 +104,7 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            screen_acceptor.clone(),
         );
 
         Ok(Self {
@@ -110,6 +118,7 @@ impl IrohTransport {
             address_state,
             shell_acceptor,
             port_acceptor,
+            screen_acceptor,
         })
     }
 
@@ -147,6 +156,17 @@ impl IrohTransport {
 
     pub async fn clear_port_acceptor(&self) {
         *self.port_acceptor.lock().await = None;
+    }
+
+    pub async fn set_screen_acceptor(
+        &self,
+        acceptor: crate::iroh::stream::ScreenAcceptor,
+    ) {
+        *self.screen_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_screen_acceptor(&self) {
+        *self.screen_acceptor.lock().await = None;
     }
 
     pub async fn open_shell_stream(
@@ -206,6 +226,72 @@ impl IrohTransport {
             from: peer,
             remote_port,
             protocol,
+            send,
+            recv,
+        })
+    }
+
+    pub async fn open_screen_list_stream(
+        &self,
+        peer: DeviceId,
+    ) -> Result<Vec<ScreenInfo>, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, mut recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = screen::build_screen_list_init();
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+        send.finish()
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let mut len_buf = [0u8; 4];
+        read_exact(&mut recv, &mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+        if len > 1024 * 1024 {
+            return Err(TransportError::Codec(
+                "screen list response too large".to_owned(),
+            ));
+        }
+        let mut payload = vec![0u8; len];
+        read_exact(&mut recv, &mut payload).await?;
+
+        serde_json::from_slice(&payload)
+            .map_err(|error| TransportError::Codec(format!("invalid screen list json: {error}")))
+    }
+
+    pub async fn open_screen_stream(
+        &self,
+        peer: DeviceId,
+        screen_id: u32,
+    ) -> Result<ScreenStreamSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = screen::build_screen_stream_init(screen_id);
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(ScreenStreamSession {
+            from: peer,
+            screen_id,
             send,
             recv,
         })

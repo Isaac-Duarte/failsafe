@@ -20,7 +20,7 @@ use failsafe_send::{
     mark_send_failed, plan_transfer_envelopes, prepare_send_payload, send_ack_timeout,
 };
 use failsafe_transport::blobs::BlobTransfer;
-use failsafe_transport::iroh::IrohTransport;
+use failsafe_transport::iroh::{IrohTransport, relay_recv_to_writer};
 use failsafe_transport::transport::Transport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{RwLock, mpsc, oneshot};
@@ -164,6 +164,13 @@ impl ControlServer {
             ControlRequest::CancelTransfers => {
                 self.handle_cancel_transfers(&mut stream).await;
             }
+            ControlRequest::ListScreens { target } => {
+                self.handle_list_screens(&mut stream, target).await;
+            }
+            ControlRequest::OpenScreenShare { target, screen_id } => {
+                self.handle_open_screen_share(&mut stream, target, screen_id)
+                    .await;
+            }
         }
     }
 
@@ -187,6 +194,102 @@ impl ControlServer {
             &ControlResponse::CancelTransfers { sends, receives },
         )
         .await;
+    }
+
+    async fn handle_list_screens(&self, stream: &mut ControlStream, target: DeviceId) {
+        if let Some(message) = self.screen_share_error(target).await {
+            let _ = send_response(stream, &ControlResponse::Error { message }).await;
+            return;
+        }
+
+        let screens = match self.iroh.open_screen_list_stream(target).await {
+            Ok(screens) => screens,
+            Err(error) => {
+                let _ = send_response(
+                    stream,
+                    &ControlResponse::Error {
+                        message: format!("failed to list screens: {error}"),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
+
+        let _ = send_response(stream, &ControlResponse::ScreenList { screens }).await;
+    }
+
+    async fn handle_open_screen_share(
+        &self,
+        stream: &mut ControlStream,
+        target: DeviceId,
+        screen_id: u32,
+    ) {
+        if let Some(message) = self.screen_share_error(target).await {
+            let _ = send_response(stream, &ControlResponse::Error { message }).await;
+            return;
+        }
+
+        let session = match self.iroh.open_screen_stream(target, screen_id).await {
+            Ok(session) => session,
+            Err(error) => {
+                let _ = send_response(
+                    stream,
+                    &ControlResponse::Error {
+                        message: format!("failed to open screen share: {error}"),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
+
+        if send_response(stream, &ControlResponse::Ready)
+            .await
+            .is_err()
+        {
+            return;
+        }
+
+        debug!(%target, %screen_id, "screen share ready, relaying video");
+
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let _ = read_half;
+
+        if let Err(error) = relay_recv_to_writer(session.recv, &mut write_half).await {
+            warn!(%target, "screen share ended with error: {error}");
+        }
+
+        let _ = write_half.shutdown().await;
+    }
+
+    async fn screen_share_error(&self, target: DeviceId) -> Option<String> {
+        if !self
+            .local_features
+            .read()
+            .await
+            .contains(&FeatureId::ScreenShare)
+        {
+            return Some(
+                "screen_share is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
+            );
+        }
+
+        if !self
+            .peers
+            .is_feature_enabled(target, FeatureId::ScreenShare)
+            .await
+        {
+            return Some(format!(
+                "screen_share is not enabled on device {target}; enable it on both devices"
+            ));
+        }
+
+        if !self.iroh.connected_peers().await.contains(&target) {
+            return Some(format!("device {target} is offline or unreachable"));
+        }
+
+        None
     }
 
     async fn handle_open_shell(
@@ -647,6 +750,9 @@ mod tests {
             ControlResponse::Error { message } => Err(DaemonError::Config(message)),
             ControlResponse::CancelTransfers { .. } => Err(DaemonError::Config(
                 "unexpected cancel transfers response".to_owned(),
+            )),
+            ControlResponse::ScreenList { .. } => Err(DaemonError::Config(
+                "unexpected screen list response".to_owned(),
             )),
         }
     }
