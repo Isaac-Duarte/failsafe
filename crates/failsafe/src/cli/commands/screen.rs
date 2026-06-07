@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 use failsafe::DaemonError;
-use failsafe_core::control::connect_control;
+use failsafe_core::control::{connect_control, ControlStream};
 use failsafe_core::screen::ScreenInfo;
-use failsafe_screen::{read_nal_from, H264Decoder, run_viewer};
+use failsafe_screen::{read_nal_from, DecodedFrame, H264Decoder, run_viewer};
 use inquire::Select;
 
 use failsafe::control::{
@@ -89,12 +89,26 @@ pub async fn screen(
     }
 
     let (frame_tx, frame_rx) = mpsc::channel();
-    let viewer_handle = std::thread::spawn(move || {
-        if let Err(error) = run_viewer(frame_rx) {
-            eprintln!("viewer exited: {error}");
+    let decode_handle = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .expect("build screen decode runtime");
+        if let Err(error) = runtime.block_on(decode_screen_stream(stream, frame_tx)) {
+            eprintln!("screen decode exited: {error}");
         }
     });
 
+    run_viewer(frame_rx).map_err(|error| DaemonError::Config(error.to_string()))?;
+
+    let _ = decode_handle.join();
+    Ok(())
+}
+
+async fn decode_screen_stream(
+    mut stream: ControlStream,
+    frame_tx: mpsc::Sender<DecodedFrame>,
+) -> Result<(), DaemonError> {
     let mut decoder = H264Decoder::new().map_err(|error| DaemonError::Config(error.to_string()))?;
 
     loop {
@@ -108,13 +122,12 @@ pub async fn screen(
         if let Some(frame) = decoder
             .decode_nal(&nal)
             .map_err(|error| DaemonError::Config(error.to_string()))?
+            && frame_tx.send(frame).is_err()
         {
-            let _ = frame_tx.send(frame);
+            break;
         }
     }
 
-    drop(frame_tx);
-    let _ = viewer_handle.join();
     Ok(())
 }
 

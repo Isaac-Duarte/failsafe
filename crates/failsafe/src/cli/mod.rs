@@ -4,13 +4,11 @@ mod context;
 mod device_select;
 mod util;
 
-use clap::Parser;
 use failsafe::DaemonError;
 
-use args::{Cli, Command};
+pub use args::{Cli, Command};
 
-pub async fn execute() -> Result<(), DaemonError> {
-    let cli = Cli::parse();
+pub async fn execute(cli: Cli) -> Result<(), DaemonError> {
     let server_url = cli
         .server_url
         .or_else(|| std::env::var("FAILSAFE_SERVER_URL").ok());

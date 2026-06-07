@@ -5,7 +5,7 @@ mod monitor;
 mod protocol;
 mod viewer;
 
-pub use decode::H264Decoder;
+pub use decode::{DecodedFrame, H264Decoder};
 pub use encode::H264Encoder;
 pub use host::{run_screen_host, write_screen_list};
 pub use monitor::{list_displays, ScreenError};

@@ -5,7 +5,25 @@ use minifb::{Key, Window, WindowOptions};
 use crate::decode::DecodedFrame;
 use crate::monitor::ScreenError;
 
+#[cfg(target_os = "macos")]
+fn ensure_main_thread() -> Result<(), ScreenError> {
+    unsafe extern "C" {
+        fn pthread_main_np() -> i32;
+    }
+
+    if unsafe { pthread_main_np() == 0 } {
+        return Err(ScreenError::Capture(
+            "screen viewer must run on the main thread on macOS".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn run_viewer(frame_rx: Receiver<DecodedFrame>) -> Result<(), ScreenError> {
+    #[cfg(target_os = "macos")]
+    ensure_main_thread()?;
+
     let mut width = 1280usize;
     let mut height = 720usize;
     let mut buffer = vec![0u32; width * height];
