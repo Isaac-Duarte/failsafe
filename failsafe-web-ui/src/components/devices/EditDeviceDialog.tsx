@@ -14,8 +14,9 @@ import {
 } from "@failsafe/ui"
 import { Input } from "@failsafe/ui"
 import { Label } from "@failsafe/ui"
+import { useFeatures } from "@/hooks/useFeatures"
 import { updateDevice } from "@/lib/api"
-import { KNOWN_FEATURES, mergeEnabledFeatures } from "@failsafe/ui"
+import { mergeEnabledFeatures } from "@failsafe/ui"
 import type { DeviceInfo, FeatureId } from "@failsafe/ui"
 
 interface EditDeviceDialogProps {
@@ -31,6 +32,7 @@ interface EditDeviceFormProps {
 }
 
 function EditDeviceForm({ device, onClose, onSaved }: EditDeviceFormProps) {
+  const { features, loading: featuresLoading } = useFeatures()
   const [editName, setEditName] = useState(device.name)
   const [editFeatures, setEditFeatures] = useState<FeatureId[]>([
     ...device.enabled_features,
@@ -59,7 +61,7 @@ function EditDeviceForm({ device, onClose, onSaved }: EditDeviceFormProps) {
     try {
       await updateDevice(device.device_id, {
         name,
-        enabled_features: mergeEnabledFeatures(editFeatures),
+        enabled_features: mergeEnabledFeatures(editFeatures, features),
       })
       toast.success("Device updated")
       onClose()
@@ -103,7 +105,7 @@ function EditDeviceForm({ device, onClose, onSaved }: EditDeviceFormProps) {
             Both devices need a feature enabled for it to work between them.
           </p>
           <div className="space-y-3">
-            {KNOWN_FEATURES.map((feature) => (
+            {features.map((feature) => (
               <label
                 key={feature.id}
                 className="flex items-start gap-2 text-sm"
@@ -114,7 +116,7 @@ function EditDeviceForm({ device, onClose, onSaved }: EditDeviceFormProps) {
                   onCheckedChange={(checked) =>
                     toggleEditFeature(feature.id, checked === true)
                   }
-                  disabled={editSaving}
+                  disabled={editSaving || featuresLoading}
                 />
                 <span className="space-y-0.5">
                   <span className="block font-medium">{feature.label}</span>

@@ -85,7 +85,7 @@ async fn iroh_send_receive_ack_roundtrip() {
     let peers = Arc::new(PeerDirectory::new());
     peers.replace_peers([device_receiver]).await;
     peers
-        .set_feature_enabled(device_receiver, FeatureId::FileSend, true)
+        .set_feature_enabled(device_receiver, FeatureId::from_static("file_send"), true)
         .await;
 
     let blob_receiver = transport_receiver.blob_transfer();
@@ -100,7 +100,7 @@ async fn iroh_send_receive_ack_roundtrip() {
         )))
         .expect("register receiver feature");
     receiver_registry
-        .enable_and_start(FeatureId::FileSend)
+        .enable_and_start(FeatureId::from_static("file_send"))
         .await
         .expect("start receiver feature");
 
@@ -121,7 +121,7 @@ async fn iroh_send_receive_ack_roundtrip() {
         .send(FeatureMessage::new(
             device_sender,
             device_receiver,
-            FeatureId::FileSend,
+            FeatureId::from_static("file_send"),
             encode_envelope(&SendEnvelope::Transfer(payload)),
         ))
         .await
@@ -137,7 +137,7 @@ async fn iroh_send_receive_ack_roundtrip() {
     let mut saw_progress = false;
     for _ in 0..120 {
         if let Ok(Some(message)) = sender_transport.try_recv().await {
-            assert_eq!(message.feature, FeatureId::FileSend);
+            assert_eq!(message.feature, FeatureId::from_static("file_send"));
             let envelope = decode_envelope(&message.payload).expect("decode send envelope");
             match envelope {
                 SendEnvelope::Progress(progress) => {

@@ -7,6 +7,7 @@ use failsafe_core::api::{
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_feature_registry::is_known_feature;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
@@ -235,6 +236,15 @@ fn model_to_info(model: device::Model) -> ServerResult<DeviceInfo> {
 }
 
 fn features_to_json(features: &[FeatureId]) -> ServerResult<serde_json::Value> {
+    for feature in features {
+        if !is_known_feature(feature.as_str()) {
+            return Err(ServerError::BadRequest(format!(
+                "unknown feature `{}`",
+                feature
+            )));
+        }
+    }
+
     serde_json::to_value(features)
         .map_err(|error| ServerError::Internal(format!("failed to encode features: {error}")))
 }

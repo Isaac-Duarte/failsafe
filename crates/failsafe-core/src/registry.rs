@@ -42,7 +42,7 @@ impl FeatureRegistry {
     }
 
     pub async fn enable_and_start(&mut self, id: FeatureId) -> Result<(), FeatureError> {
-        self.enable(id)?;
+        self.enable(id.clone())?;
         let feature = self
             .features
             .get_mut(&id)
@@ -50,16 +50,16 @@ impl FeatureRegistry {
         feature.start().await
     }
 
-    pub fn is_registered(&self, id: FeatureId) -> bool {
-        self.features.contains_key(&id)
+    pub fn is_registered(&self, id: &FeatureId) -> bool {
+        self.features.contains_key(id)
     }
 
-    pub fn is_enabled(&self, id: FeatureId) -> bool {
-        self.enabled.contains(&id)
+    pub fn is_enabled(&self, id: &FeatureId) -> bool {
+        self.enabled.contains(id)
     }
 
     pub fn enabled_features(&self) -> impl Iterator<Item = FeatureId> + '_ {
-        self.enabled.iter().copied()
+        self.enabled.iter().cloned()
     }
 
     pub async fn start_enabled(&mut self) -> Result<(), FeatureError> {
@@ -74,8 +74,8 @@ impl FeatureRegistry {
     }
 
     pub async fn dispatch(&mut self, message: FeatureMessage) -> Result<(), FeatureError> {
-        let id = message.feature;
-        if !self.is_enabled(id) {
+        let id = message.feature.clone();
+        if !self.is_enabled(&id) {
             return Err(FeatureError::NotEnabled(id));
         }
         let feature = self
@@ -98,6 +98,7 @@ mod tests {
 
     use super::*;
     use crate::device::DeviceId;
+    use crate::feature::FeatureSpec;
 
     struct EchoFeature {
         last_payload: Option<Vec<u8>>,
@@ -109,10 +110,26 @@ mod tests {
         }
     }
 
+    struct EchoFeatureSpec;
+
+    impl crate::feature::FeatureSpec for EchoFeatureSpec {
+        fn id() -> &'static str {
+            "clipboard"
+        }
+
+        fn label() -> &'static str {
+            "Clipboard"
+        }
+
+        fn description() -> &'static str {
+            "test"
+        }
+    }
+
     #[async_trait]
     impl Feature for EchoFeature {
         fn id(&self) -> FeatureId {
-            FeatureId::Clipboard
+            EchoFeatureSpec::feature_id()
         }
 
         async fn start(&mut self) -> Result<(), FeatureError> {
@@ -134,7 +151,7 @@ mod tests {
         let mut registry = FeatureRegistry::new();
         let feature = Box::new(EchoFeature::new());
         registry.register(feature).unwrap();
-        registry.enable(FeatureId::Clipboard).unwrap();
+        registry.enable(EchoFeatureSpec::feature_id()).unwrap();
 
         let from = DeviceId::new();
         let to = DeviceId::new();
@@ -142,7 +159,7 @@ mod tests {
             .dispatch(FeatureMessage::new(
                 from,
                 to,
-                FeatureId::Clipboard,
+                EchoFeatureSpec::feature_id(),
                 b"hello",
             ))
             .await
@@ -154,19 +171,17 @@ mod tests {
         let mut registry = FeatureRegistry::new();
         registry.register(Box::new(EchoFeature::new())).unwrap();
 
+        let feature_id = EchoFeatureSpec::feature_id();
         let err = registry
             .dispatch(FeatureMessage::new(
                 DeviceId::new(),
                 DeviceId::new(),
-                FeatureId::Clipboard,
+                feature_id.clone(),
                 b"hello",
             ))
             .await
             .unwrap_err();
 
-        assert!(matches!(
-            err,
-            FeatureError::NotEnabled(FeatureId::Clipboard)
-        ));
+        assert!(matches!(err, FeatureError::NotEnabled(id) if id == feature_id));
     }
 }

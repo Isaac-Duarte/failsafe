@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 failsafe-core.workspace = true
+failsafe-feature-registry.workspace = true
 axum.workspace = true
 tower.workspace = true
 tower-http.workspace = true

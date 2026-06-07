@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use failsafe_core::feature::{Feature, FeatureError, FeatureId};
+use failsafe_core::feature::{Feature, FeatureError, FeatureId, FeatureSpec};
 use failsafe_core::message::FeatureMessage;
 use failsafe_core::outbound::OutboundPublisher;
 use failsafe_transport::blobs::{BlobTransfer, MockBlobTransfer};
@@ -26,6 +26,24 @@ pub(super) struct ClipboardState {
     pub(super) last_emitted: Mutex<Option<String>>,
     pub(super) last_failed: Mutex<Option<String>>,
     pub(super) applying_remote: AtomicBool,
+}
+
+pub const ID: &str = "clipboard";
+
+pub struct ClipboardFeatureSpec;
+
+impl FeatureSpec for ClipboardFeatureSpec {
+    fn id() -> &'static str {
+        ID
+    }
+
+    fn label() -> &'static str {
+        "Clipboard"
+    }
+
+    fn description() -> &'static str {
+        "Sync clipboard content across devices"
+    }
 }
 
 /// Syncs clipboard content with peer devices via the runtime publisher.
@@ -79,7 +97,7 @@ impl ClipboardFeature {
 #[async_trait]
 impl Feature for ClipboardFeature {
     fn id(&self) -> FeatureId {
-        FeatureId::Clipboard
+        ClipboardFeatureSpec::feature_id()
     }
 
     async fn start(&mut self) -> Result<(), FeatureError> {
@@ -111,7 +129,7 @@ impl Feature for ClipboardFeature {
             self.state.limits,
         )
         .await
-        .map_err(|error| FeatureError::Failed(FeatureId::Clipboard, error))?;
+        .map_err(|error| FeatureError::Failed(ClipboardFeatureSpec::feature_id(), error))?;
 
         self.state.applying_remote.store(true, Ordering::SeqCst);
 
@@ -130,7 +148,7 @@ impl Feature for ClipboardFeature {
 }
 
 fn io_error_to_feature_error(error: ClipboardIoError) -> FeatureError {
-    FeatureError::Failed(FeatureId::Clipboard, error.to_string())
+    FeatureError::Failed(ClipboardFeatureSpec::feature_id(), error.to_string())
 }
 
 #[cfg(test)]
@@ -177,7 +195,7 @@ mod tests {
             .handle_message(FeatureMessage::new(
                 DeviceId::new(),
                 DeviceId::new(),
-                FeatureId::Clipboard,
+                ClipboardFeatureSpec::feature_id(),
                 payload::encode(&payload),
             ))
             .await

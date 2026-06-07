@@ -5,6 +5,7 @@ use std::path::Path;
 use failsafe_core::api::DeviceInfo;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_feature_registry::all_ids;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
@@ -45,7 +46,7 @@ pub async fn apply_self_from_server(
         return Ok(false);
     };
 
-    let server_features: HashSet<_> = self_device.enabled_features.iter().copied().collect();
+    let server_features: HashSet<_> = self_device.enabled_features.iter().cloned().collect();
     let name_changed = self_device.name != *device_name;
     let features_changed = server_features != *local_features;
     let policy_changed = name_changed || features_changed;
@@ -75,25 +76,25 @@ async fn sync_features_to_registry(
     registry: &mut FeatureRegistry,
     start_new_features: bool,
 ) -> Result<(), DaemonError> {
-    for feature in FeatureId::all() {
-        if !registry.is_registered(*feature) {
+    for feature in all_ids() {
+        if !registry.is_registered(&feature) {
             continue;
         }
 
-        let should_enable = target.contains(feature);
-        let is_enabled = registry.is_enabled(*feature);
+        let should_enable = target.contains(&feature);
+        let is_enabled = registry.is_enabled(&feature);
 
         if should_enable && !is_enabled {
             if start_new_features {
                 registry
-                    .enable_and_start(*feature)
+                    .enable_and_start(feature.clone())
                     .await
                     .map_err(DaemonError::Feature)?;
             } else {
-                registry.enable(*feature).map_err(DaemonError::Feature)?;
+                registry.enable(feature.clone()).map_err(DaemonError::Feature)?;
             }
         } else if !should_enable && is_enabled {
-            registry.disable(*feature).await;
+            registry.disable(feature).await;
         }
     }
 
@@ -118,11 +119,12 @@ pub async fn apply_server_devices(
         peer_ids.push(device.device_id);
         addresses.insert(device.device_id, device.iroh_public_key.clone());
 
-        let remote_features: HashSet<_> = device.enabled_features.iter().copied().collect();
-        for feature in FeatureId::all() {
-            let enabled = local_features.contains(feature) && remote_features.contains(feature);
+        let remote_features: HashSet<_> = device.enabled_features.iter().cloned().collect();
+        for feature in all_ids() {
+            let enabled =
+                local_features.contains(&feature) && remote_features.contains(&feature);
             peers
-                .set_feature_enabled(device.device_id, *feature, enabled)
+                .set_feature_enabled(device.device_id, feature, enabled)
                 .await;
         }
     }
@@ -137,7 +139,7 @@ mod tests {
 
     use async_trait::async_trait;
     use failsafe_core::api::DeviceInfo;
-    use failsafe_core::feature::{Feature, FeatureError};
+    use failsafe_core::feature::{Feature, FeatureError, FeatureId};
     use failsafe_core::message::FeatureMessage;
     use failsafe_core::peer::PeerDirectory;
     use failsafe_core::registry::FeatureRegistry;
@@ -151,7 +153,7 @@ mod tests {
     #[async_trait]
     impl Feature for EchoFeature {
         fn id(&self) -> FeatureId {
-            FeatureId::Clipboard
+            FeatureId::from_static("clipboard")
         }
 
         async fn start(&mut self) -> Result<(), FeatureError> {
@@ -179,7 +181,7 @@ mod tests {
         let peer = DeviceId::new();
         let peers = Arc::new(PeerDirectory::new());
         let transport = MockTransport::pair().await.0;
-        let local_features = HashSet::from([FeatureId::Clipboard]);
+        let local_features = HashSet::from([FeatureId::from_static("clipboard")]);
 
         let devices = vec![DeviceInfo {
             device_id: peer,
@@ -193,7 +195,7 @@ mod tests {
         apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
 
         assert_eq!(peers.peers().await, vec![peer]);
-        assert!(peers.recipients_for(FeatureId::Clipboard).await.is_empty());
+        assert!(peers.recipients_for(FeatureId::from_static("clipboard")).await.is_empty());
     }
 
     #[tokio::test]
@@ -202,20 +204,20 @@ mod tests {
         let peer = DeviceId::new();
         let peers = Arc::new(PeerDirectory::new());
         let transport = MockTransport::pair().await.0;
-        let local_features = HashSet::from([FeatureId::Clipboard]);
+        let local_features = HashSet::from([FeatureId::from_static("clipboard")]);
 
         let devices = vec![DeviceInfo {
             device_id: peer,
             name: "peer".to_owned(),
             iroh_public_key: "abc".to_owned(),
-            enabled_features: vec![FeatureId::Clipboard],
+            enabled_features: vec![FeatureId::from_static("clipboard")],
             last_seen: None,
             online: false,
         }];
 
         apply_server_devices(self_id, &local_features, &devices, &peers, &transport).await;
 
-        assert_eq!(peers.recipients_for(FeatureId::Clipboard).await, vec![peer]);
+        assert_eq!(peers.recipients_for(FeatureId::from_static("clipboard")).await, vec![peer]);
     }
 
     #[tokio::test]
@@ -252,7 +254,7 @@ mod tests {
         assert!(changed);
         assert_eq!(device_name, "server-name");
         assert!(local_features.is_empty());
-        assert!(!registry.is_enabled(FeatureId::Clipboard));
+        assert!(!registry.is_enabled(&FeatureId::from_static("clipboard")));
     }
 
     #[tokio::test]
@@ -269,7 +271,7 @@ mod tests {
             device_id: self_id,
             name: "server-name".to_owned(),
             iroh_public_key: "abc".to_owned(),
-            enabled_features: vec![FeatureId::Clipboard],
+            enabled_features: vec![FeatureId::from_static("clipboard")],
             last_seen: None,
             online: true,
         }];
@@ -287,8 +289,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(registry.is_enabled(FeatureId::Clipboard));
-        assert!(local_features.contains(&FeatureId::Clipboard));
+        assert!(registry.is_enabled(&FeatureId::from_static("clipboard")));
+        assert!(local_features.contains(&FeatureId::from_static("clipboard")));
     }
 
     #[tokio::test]
@@ -304,7 +306,7 @@ mod tests {
             device_id: self_id,
             name: "server-name".to_owned(),
             iroh_public_key: "abc".to_owned(),
-            enabled_features: vec![FeatureId::Clipboard, FeatureId::Shell],
+            enabled_features: vec![FeatureId::from_static("clipboard"), FeatureId::from_static("shell")],
             last_seen: None,
             online: true,
         }];
@@ -322,8 +324,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(local_features.contains(&FeatureId::Shell));
-        assert!(!registry.is_registered(FeatureId::Shell));
-        assert!(registry.is_enabled(FeatureId::Clipboard));
+        assert!(local_features.contains(&FeatureId::from_static("shell")));
+        assert!(!registry.is_registered(&FeatureId::from_static("shell")));
+        assert!(registry.is_enabled(&FeatureId::from_static("clipboard")));
     }
 }

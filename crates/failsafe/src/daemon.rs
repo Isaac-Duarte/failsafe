@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use failsafe_clipboard::feature::ClipboardFeature;
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
@@ -12,53 +11,21 @@ use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
-use failsafe_send::{SendCoordinator, SendFeature, parse_ack};
+use failsafe_feature_registry::{DaemonBuildContext, build_feature_registry};
+use failsafe_send::SendCoordinator;
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::blobs::MockBlobTransfer;
-use failsafe_transport::iroh::{PortSession, ShellSession};
 use failsafe_transport::peer_updater::PeerAddressUpdater;
 use failsafe_transport::router::MessageRouter;
 use failsafe_transport::transport::Transport;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 use tracing::info;
 
 use crate::config::Config;
 use crate::control_server::ControlServer;
 use crate::error::DaemonError;
 use crate::server::ServerClient;
-use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
-use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
-
-async fn ensure_acceptor_service<T>(
-    iroh: &Option<Arc<failsafe_transport::iroh::IrohTransport>>,
-    enabled: bool,
-    sessions: &mut Option<mpsc::Receiver<T>>,
-    start: impl FnOnce(Arc<failsafe_transport::iroh::IrohTransport>) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = mpsc::Receiver<T>> + Send>,
-    >,
-    stop: impl for<'a> FnOnce(
-        &'a failsafe_transport::iroh::IrohTransport,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>,
-) {
-    if enabled && sessions.is_none() {
-        if let Some(iroh) = iroh.clone() {
-            *sessions = Some(start(iroh).await);
-        }
-    } else if !enabled && sessions.is_some() {
-        if let Some(iroh) = iroh.as_ref() {
-            stop(iroh).await;
-        }
-        *sessions = None;
-    }
-}
-
-async fn recv_if_some<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
-    match rx.as_mut() {
-        Some(rx) => rx.recv().await,
-        None => std::future::pending().await,
-    }
-}
 
 pub struct TransportBundle {
     pub transport: Arc<dyn Transport>,
@@ -81,8 +48,6 @@ pub struct Daemon {
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
     blob_transfer: Arc<dyn BlobTransfer>,
     send_limits: ClipboardLimits,
-    shell_sessions: Option<mpsc::Receiver<ShellSession>>,
-    port_sessions: Option<mpsc::Receiver<PortSession>>,
     config_path: Option<PathBuf>,
     config: Option<Config>,
 }
@@ -180,33 +145,27 @@ impl DaemonBuilder {
             .ok_or_else(|| DaemonError::Config("peer updater is required".to_owned()))?;
 
         let publisher = MessageRouter::into_publisher(transport.clone(), self.peers.clone());
-        let mut registry = FeatureRegistry::new();
-
-        registry.register(Box::new(ClipboardFeature::new_with_limits(
-            publisher,
-            self.blob_transfer.clone(),
-            self.clipboard_limits,
-        )))?;
 
         let blob_transfer = self
             .blob_transfer
             .clone()
             .unwrap_or_else(|| Arc::new(MockBlobTransfer::new()));
         let send_coordinator = SendCoordinator::new();
-        // File send intentionally has no size cap; blob import/export streams from disk.
-        registry.register(Box::new(SendFeature::new(
-            blob_transfer.clone(),
-            ClipboardLimits::unlimited(),
-            transport.clone(),
-            send_coordinator.clone(),
-        )))?;
 
-        if self.enabled_features.contains(&FeatureId::Clipboard) {
-            registry.enable(FeatureId::Clipboard)?;
-        }
+        let mut registry = build_feature_registry(&DaemonBuildContext {
+            publisher,
+            blob_transfer: blob_transfer.clone(),
+            clipboard_limits: self.clipboard_limits,
+            transport: transport.clone(),
+            send_coordinator: send_coordinator.clone(),
+            iroh: self.iroh.clone(),
+        })
+        .map_err(DaemonError::Feature)?;
 
-        if self.enabled_features.contains(&FeatureId::FileSend) {
-            registry.enable(FeatureId::FileSend)?;
+        for feature in &self.enabled_features {
+            if registry.is_registered(&feature) {
+                registry.enable(feature.clone())?;
+            }
         }
 
         Ok(Daemon {
@@ -223,8 +182,6 @@ impl DaemonBuilder {
             blob_transfer,
             // No size limits on outbound sends (see SendFeature registration above).
             send_limits: ClipboardLimits::unlimited(),
-            shell_sessions: None,
-            port_sessions: None,
             config_path: None,
             config: None,
         })
@@ -299,7 +256,7 @@ impl Daemon {
                 device_id: self.device_id(),
                 name: self.device_name.clone(),
                 iroh_public_key,
-                enabled_features: self.local_features.iter().copied().collect(),
+                enabled_features: self.local_features.iter().cloned().collect(),
             })
             .await
     }
@@ -343,46 +300,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn ensure_shell_service(&mut self) {
-        ensure_acceptor_service(
-            &self.iroh,
-            self.local_features.contains(&FeatureId::Shell),
-            &mut self.shell_sessions,
-            |iroh| Box::pin(start_shell_acceptor(iroh)),
-            |iroh| Box::pin(stop_shell_acceptor(iroh)),
-        )
-        .await;
-    }
-
-    async fn ensure_port_service(&mut self) {
-        ensure_acceptor_service(
-            &self.iroh,
-            self.local_features.contains(&FeatureId::PortForward),
-            &mut self.port_sessions,
-            |iroh| Box::pin(start_port_acceptor(iroh)),
-            |iroh| Box::pin(stop_port_acceptor(iroh)),
-        )
-        .await;
-    }
-
     async fn handle_transport_message(&mut self, message: FeatureMessage) {
-        if message.feature == FeatureId::FileSend {
-            if let Some(ack) = parse_ack(&message.payload) {
-                tracing::debug!(
-                    from = %message.from,
-                    transfer_id = %ack.transfer_id,
-                    ok = ack.ok,
-                    "routing inbound file send acknowledgement to coordinator"
-                );
-                self.send_coordinator.complete_ack(ack).await;
-                return;
-            }
-            tracing::debug!(
-                from = %message.from,
-                bytes = message.payload.len(),
-                "dispatching inbound file send message"
-            );
-        }
         if let Err(error) = self.registry.dispatch(message).await {
             tracing::warn!("failed to dispatch inbound message: {error}");
         }
@@ -402,8 +320,6 @@ impl Daemon {
             tracing::warn!("server sync failed: {error}");
         } else {
             *shared_features.write().await = self.local_features.clone();
-            self.ensure_shell_service().await;
-            self.ensure_port_service().await;
         }
         Ok(())
     }
@@ -422,8 +338,6 @@ impl Daemon {
         self.sync_from_server(false).await?;
 
         self.registry.start_enabled().await?;
-        self.ensure_shell_service().await;
-        self.ensure_port_service().await;
 
         let shared_features = Arc::new(RwLock::new(self.local_features.clone()));
         let control_server: Option<Arc<ControlServer>> = self
@@ -462,16 +376,6 @@ impl Daemon {
                         }
                     }
                 }
-                session = recv_if_some(&mut self.shell_sessions) => {
-                    if let Some(session) = session {
-                        tokio::spawn(handle_incoming_shell(session));
-                    }
-                }
-                port_session = recv_if_some(&mut self.port_sessions) => {
-                    if let Some(session) = port_session {
-                        tokio::spawn(handle_incoming_port(session));
-                    }
-                }
                 accepted = async {
                     match control_listener.as_ref() {
                         Some(listener) => listener.accept().await.ok(),
@@ -496,11 +400,6 @@ impl Daemon {
                     break;
                 }
             }
-        }
-
-        if let Some(iroh) = &self.iroh {
-            stop_shell_acceptor(iroh).await;
-            stop_port_acceptor(iroh).await;
         }
 
         self.shutdown().await

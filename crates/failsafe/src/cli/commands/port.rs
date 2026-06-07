@@ -11,6 +11,8 @@ use failsafe::control::{
     ControlRequest, ControlResponse, control_socket_path, map_control_connect_error, recv_response,
     send_request,
 };
+use failsafe_core::feature::FeatureSpec;
+use failsafe_port::{OpenPortForwardRequest, PortFeatureSpec};
 
 use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};
 use crate::cli::device_select::select_device_interactive;
@@ -74,12 +76,16 @@ pub async fn port(
 
     send_request(
         &mut stream,
-        &ControlRequest::OpenPortForward {
-            target: target.device_id,
-            local_port: port_spec.local_port,
-            remote_port: port_spec.remote_port,
-            protocol,
-        },
+        &ControlRequest::new(
+            PortFeatureSpec::feature_id(),
+            OpenPortForwardRequest {
+                target: target.device_id,
+                local_port: port_spec.local_port,
+                remote_port: port_spec.remote_port,
+                protocol,
+            },
+        )
+        .map_err(DaemonError::Control)?,
     )
     .await?;
 

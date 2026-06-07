@@ -1,9 +1,9 @@
 use failsafe_core::api::{
     AccountResponse, ApiError, AuthLoginRequest, AuthLogoutRequest, AuthMfaLoginRequest,
     AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest, DeviceInfo,
-    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
-    PairingRedeemRequest, TotpDisableRequest, TotpEnableRequest, TotpEnableResponse,
-    TotpSetupResponse,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, FeatureInfo,
+    FeaturesListResponse, PairingCreateResponse, PairingRedeemRequest, TotpDisableRequest,
+    TotpEnableRequest, TotpEnableResponse, TotpSetupResponse,
 };
 use failsafe_core::feature::FeatureId;
 use specta::Types;
@@ -30,7 +30,9 @@ fn main() {
         .register::<PairingCreateResponse>()
         .register::<PairingRedeemRequest>()
         .register::<ApiError>()
-        .register::<FeatureId>();
+        .register::<FeatureId>()
+        .register::<FeatureInfo>()
+        .register::<FeaturesListResponse>();
 
     let output = concat!(
         env!("CARGO_MANIFEST_DIR"),

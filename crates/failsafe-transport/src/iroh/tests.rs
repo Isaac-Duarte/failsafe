@@ -76,7 +76,7 @@ async fn two_transports_exchange_messages() {
         .await
         .expect("b connects to a");
 
-    let message = FeatureMessage::new(device_a, device_b, FeatureId::Clipboard, b"hello over iroh");
+    let message = FeatureMessage::new(device_a, device_b, FeatureId::from_static("clipboard"), b"hello over iroh");
 
     transport_a
         .send(message.clone())

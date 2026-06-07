@@ -77,6 +77,7 @@ pub fn build_app(state: AppState) -> Router {
 
     let public = Router::new()
         .nest("/api/v1/auth", auth_public)
+        .nest("/api/v1/features", routes::features::router())
         .nest("/api/v1/pairing", pairing_public)
         .route("/health", get(|| async { "ok" }));
 

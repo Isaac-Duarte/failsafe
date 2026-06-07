@@ -52,7 +52,7 @@ impl PeerDirectory {
         peers
             .iter()
             .copied()
-            .filter(|peer| !disabled.contains(&(*peer, feature)))
+            .filter(|peer| !disabled.contains(&(*peer, feature.clone())))
             .collect()
     }
 }
@@ -75,10 +75,12 @@ mod tests {
 
         directory.replace_peers([laptop, phone]).await;
         directory
-            .set_feature_enabled(phone, FeatureId::Clipboard, false)
+            .set_feature_enabled(phone, FeatureId::from_static("clipboard"), false)
             .await;
 
-        let recipients = directory.recipients_for(FeatureId::Clipboard).await;
+        let recipients = directory
+            .recipients_for(FeatureId::from_static("clipboard"))
+            .await;
         assert_eq!(recipients, vec![laptop]);
     }
 }

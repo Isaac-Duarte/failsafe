@@ -5,7 +5,6 @@ pub mod credentials;
 pub mod daemon;
 pub mod error;
 pub mod server;
-pub mod shell_service;
 pub mod sync;
 
 pub use config::Config;

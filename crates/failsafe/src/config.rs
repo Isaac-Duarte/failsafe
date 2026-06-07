@@ -42,7 +42,11 @@ impl Config {
             device_id,
             device_name: default_device_name(),
             server_url: default_server_url(),
-            enabled_features: vec![FeatureId::Clipboard, FeatureId::Shell, FeatureId::FileSend],
+            enabled_features: vec![
+                FeatureId::from_static("clipboard"),
+                FeatureId::from_static("shell"),
+                FeatureId::from_static("file_send"),
+            ],
             blob_store_path: None,
             clipboard_max_file_bytes: default_clipboard_max_file_bytes(),
         }
@@ -101,7 +105,7 @@ impl Config {
     }
 
     pub fn enabled_feature_set(&self) -> HashSet<FeatureId> {
-        self.enabled_features.iter().copied().collect()
+        self.enabled_features.iter().cloned().collect()
     }
 
     pub fn normalize_server_url(url: &str) -> String {

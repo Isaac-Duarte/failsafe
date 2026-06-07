@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use failsafe_core::feature::FeatureId;
+use failsafe_core::feature::FeatureSpec;
 use failsafe_core::outbound::OutboundMessage;
 
+use super::ClipboardFeatureSpec;
 use crate::payload;
 
 use super::ClipboardState;
@@ -59,7 +60,10 @@ pub(super) async fn watch_clipboard(state: Arc<ClipboardState>) {
 
         *state.last_emitted.lock().await = Some(fingerprint);
 
-        let outbound = OutboundMessage::new(FeatureId::Clipboard, payload::encode(&payload));
+        let outbound = OutboundMessage::new(
+            ClipboardFeatureSpec::feature_id(),
+            payload::encode(&payload),
+        );
 
         if let Err(error) = state.publisher.publish(outbound).await {
             eprintln!("clipboard publish failed: {error}");

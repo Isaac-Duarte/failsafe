@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::feature::FeatureId;
+
 mod transport;
 
 pub use transport::{
@@ -32,27 +34,30 @@ pub struct ControlEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ControlRequest {
-    OpenShell {
-        target: crate::device::DeviceId,
-        rows: u16,
-        cols: u16,
-    },
-    OpenPortForward {
-        target: crate::device::DeviceId,
-        local_port: u16,
-        remote_port: u16,
-        protocol: PortProtocol,
-    },
-    SendFiles {
-        target: crate::device::DeviceId,
-        paths: Vec<SendPathSpec>,
-        transfer_id: Uuid,
-        #[serde(default)]
-        resume: bool,
-    },
-    CancelTransfers,
+pub struct ControlRequest {
+    pub feature: FeatureId,
+    pub body: serde_json::Value,
+}
+
+impl ControlRequest {
+    pub fn new(feature: impl Into<FeatureId>, body: impl Serialize) -> Result<Self, ControlError> {
+        let body = serde_json::to_value(body).map_err(|error| {
+            ControlError::Config(format!("failed to encode control request body: {error}"))
+        })?;
+        Ok(Self {
+            feature: feature.into(),
+            body,
+        })
+    }
+}
+
+impl From<FeatureId> for ControlRequest {
+    fn from(feature: FeatureId) -> Self {
+        Self {
+            feature,
+            body: serde_json::Value::Null,
+        }
+    }
 }
 
 /// A local file or directory to send, with the archive path the receiver should see.

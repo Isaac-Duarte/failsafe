@@ -116,7 +116,7 @@ mod tests {
         let message = FeatureMessage::new(
             a.local_device_id(),
             b.local_device_id(),
-            FeatureId::Clipboard,
+            FeatureId::from_static("clipboard"),
             b"hello",
         );
         a.send(message.clone()).await.unwrap();
@@ -135,7 +135,7 @@ mod tests {
         let message = FeatureMessage::new(
             a.local_device_id(),
             c.local_device_id(),
-            FeatureId::Clipboard,
+            FeatureId::from_static("clipboard"),
             b"hello",
         );
         a.send(message.clone()).await.unwrap();
@@ -152,7 +152,7 @@ mod tests {
             .send(FeatureMessage::new(
                 a.local_device_id(),
                 DeviceId::new(),
-                FeatureId::Clipboard,
+                FeatureId::from_static("clipboard"),
                 b"hello",
             ))
             .await

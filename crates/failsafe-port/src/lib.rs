@@ -1,9 +1,12 @@
+mod control;
+mod feature;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use failsafe_core::control::PortProtocol;
 use failsafe_core::device::DeviceId;
-use failsafe_core::feature::FeatureId;
+use failsafe_core::feature::{FeatureId, FeatureSpec};
 use failsafe_core::peer::PeerDirectory;
 use failsafe_transport::iroh::{IrohTransport, PortSession, relay_shell_streams};
 use failsafe_transport::transport::Transport;
@@ -11,6 +14,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+
+pub use control::{OpenPortForwardRequest, PortFeatureControl};
+pub use feature::{PortFeature, PortFeatureSpec, ID as PORT_FEATURE_ID};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
@@ -69,14 +75,14 @@ pub async fn prepare_outgoing_port_forward(
     _remote_port: u16,
     protocol: PortProtocol,
 ) -> Result<TcpListener, PortError> {
-    if !local_features.contains(&FeatureId::PortForward) {
+    if !local_features.contains(&PortFeatureSpec::feature_id()) {
         return Err(PortError::Client(
             "port_forward is not enabled on this device; enable it in the web UI or with `failsafe devices features`, then wait for the daemon to sync".to_owned(),
         ));
     }
 
     if !peers
-        .is_feature_enabled(target, FeatureId::PortForward)
+        .is_feature_enabled(target, PortFeatureSpec::feature_id())
         .await
     {
         return Err(PortError::Client(format!(

@@ -31,7 +31,8 @@ impl MessageRouter {
 impl OutboundPublisher for MessageRouter {
     async fn publish(&self, outbound: OutboundMessage) -> Result<(), PublishError> {
         let local_id = self.transport.local_device_id();
-        let candidates = self.peers.recipients_for(outbound.feature).await;
+        let feature = outbound.feature.clone();
+        let candidates = self.peers.recipients_for(feature.clone()).await;
         if candidates.is_empty() {
             return Ok(());
         }
@@ -50,7 +51,7 @@ impl OutboundPublisher for MessageRouter {
 
         for peer in recipients {
             let message =
-                FeatureMessage::new(local_id, peer, outbound.feature, outbound.payload.clone());
+                FeatureMessage::new(local_id, peer, feature.clone(), outbound.payload.clone());
 
             if let Err(error) = self.transport.send(message).await {
                 failures.push(format!("{peer}: {error}"));
@@ -86,12 +87,12 @@ mod tests {
         let publisher = MessageRouter::into_publisher(Arc::new(local_transport), peers);
 
         publisher
-            .publish(OutboundMessage::new(FeatureId::Clipboard, b"hello"))
+            .publish(OutboundMessage::new(FeatureId::from_static("clipboard"), b"hello"))
             .await
             .unwrap();
 
         let received = peer_transport.recv().await.unwrap();
-        assert_eq!(received.feature, FeatureId::Clipboard);
+        assert_eq!(received.feature, FeatureId::from_static("clipboard"));
         assert_eq!(received.payload, b"hello");
     }
 
@@ -103,13 +104,13 @@ mod tests {
         let peers = Arc::new(PeerDirectory::new());
         peers.replace_peers([peer_id]).await;
         peers
-            .set_feature_enabled(peer_id, FeatureId::Clipboard, false)
+            .set_feature_enabled(peer_id, FeatureId::from_static("clipboard"), false)
             .await;
 
         let publisher = MessageRouter::into_publisher(Arc::new(local_transport), peers);
 
         publisher
-            .publish(OutboundMessage::new(FeatureId::Clipboard, b"hello"))
+            .publish(OutboundMessage::new(FeatureId::from_static("clipboard"), b"hello"))
             .await
             .unwrap();
 

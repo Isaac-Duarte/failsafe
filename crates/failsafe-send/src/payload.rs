@@ -1,5 +1,7 @@
 use failsafe_core::control::SendPhase;
-use failsafe_core::feature::{FeatureError, FeatureId};
+use failsafe_core::feature::{FeatureError, FeatureSpec};
+
+use crate::feature::SendFeatureSpec;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -92,7 +94,7 @@ pub fn parse_ack(payload: &[u8]) -> Option<SendAck> {
 pub fn decode_envelope(bytes: &[u8]) -> Result<SendEnvelope, FeatureError> {
     serde_json::from_slice(bytes).map_err(|error| {
         FeatureError::Failed(
-            FeatureId::FileSend,
+            SendFeatureSpec::feature_id(),
             format!("invalid send envelope: {error}"),
         )
     })

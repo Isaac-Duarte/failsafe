@@ -180,3 +180,15 @@ pub struct PairingRedeemRequest {
 pub struct ApiError {
     pub error: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct FeatureInfo {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct FeaturesListResponse {
+    pub features: Vec<FeatureInfo>,
+}
