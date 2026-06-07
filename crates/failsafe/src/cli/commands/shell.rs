@@ -9,6 +9,8 @@ use failsafe::control::{
     ControlRequest, ControlResponse, control_socket_path, map_control_connect_error, recv_response,
     relay_terminal_io, send_request,
 };
+use failsafe_core::feature::FeatureSpec;
+use failsafe_shell::{OpenShellRequest, ShellFeatureSpec};
 
 use crate::cli::context::{config_path_or_default, load_config, server_client_from_config};
 use crate::cli::device_select::select_device_interactive;
@@ -43,11 +45,15 @@ pub async fn shell(
 
     send_request(
         &mut stream,
-        &ControlRequest::OpenShell {
-            target: target.device_id,
-            rows,
-            cols,
-        },
+        &ControlRequest::new(
+            ShellFeatureSpec::feature_id(),
+            OpenShellRequest {
+                target: target.device_id,
+                rows,
+                cols,
+            },
+        )
+        .map_err(DaemonError::Control)?,
     )
     .await?;
 

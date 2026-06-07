@@ -1,49 +1,28 @@
-import type { FeatureId } from "./bindings"
-
-export const KNOWN_FEATURES = [
-  {
-    id: "clipboard",
-    label: "Clipboard",
-    description: "Sync clipboard content across devices",
-  },
-  {
-    id: "shell",
-    label: "Shell",
-    description: "Accept remote terminal sessions from other devices",
-  },
-  {
-    id: "port_forward",
-    label: "Port Forward",
-    description: "Accept forwarded TCP connections from other devices",
-  },
-  {
-    id: "file_send",
-    label: "File Send",
-    description: "Receive explicit file transfers from other devices",
-  },
-] as const
+import type { FeatureId, FeatureInfo } from "./bindings"
 
 export type KnownFeatureId = FeatureId
 
-const featureById = new Map(KNOWN_FEATURES.map((feature) => [feature.id, feature]))
-
-export function formatFeatureLabel(featureId: string): string {
-  return featureById.get(featureId as KnownFeatureId)?.label ?? featureId
+export function featureMap(features: FeatureInfo[]): Map<string, FeatureInfo> {
+  return new Map(features.map((feature) => [feature.id, feature]))
 }
 
-export function formatFeatureDescription(featureId: string): string | undefined {
-  return featureById.get(featureId as KnownFeatureId)?.description
+export function formatFeatureLabel(featureId: string, features: FeatureInfo[]): string {
+  return featureMap(features).get(featureId)?.label ?? featureId
 }
 
-export function isKnownFeature(featureId: string): featureId is KnownFeatureId {
-  return featureById.has(featureId as KnownFeatureId)
+export function formatFeatureDescription(
+  featureId: string,
+  features: FeatureInfo[]
+): string | undefined {
+  return featureMap(features).get(featureId)?.description
 }
 
-export function mergeEnabledFeatures(selected: FeatureId[]): FeatureId[] {
-  const knownIds = new Set<FeatureId>(KNOWN_FEATURES.map((feature) => feature.id))
+export function mergeEnabledFeatures(
+  selected: FeatureId[],
+  catalog: FeatureInfo[]
+): FeatureId[] {
+  const knownIds = new Set(catalog.map((feature) => feature.id))
   const unknown = selected.filter((feature) => !knownIds.has(feature))
-  const known = KNOWN_FEATURES.map((feature) => feature.id).filter((id) =>
-    selected.includes(id)
-  )
+  const known = catalog.map((feature) => feature.id).filter((id) => selected.includes(id))
   return [...known, ...unknown]
 }

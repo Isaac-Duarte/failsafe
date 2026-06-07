@@ -4,6 +4,7 @@ members = [
     "crates/failsafe-bindings",
     "crates/failsafe-clipboard",
     "crates/failsafe-core",
+    "crates/failsafe-feature-registry",
     "crates/failsafe-port",
     "crates/failsafe-send",
     "crates/failsafe-shell",
@@ -28,6 +29,7 @@ panic = "abort"
 async-trait = "0.1"
 failsafe-clipboard = { path = "crates/failsafe-clipboard" }
 failsafe-core = { path = "crates/failsafe-core" }
+failsafe-feature-registry = { path = "crates/failsafe-feature-registry" }
 failsafe-port = { path = "crates/failsafe-port" }
 failsafe-send = { path = "crates/failsafe-send" }
 failsafe-shell = { path = "crates/failsafe-shell" }

@@ -1,0 +1,15 @@
+[package]
+name = "failsafe-feature-registry"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+failsafe-clipboard.workspace = true
+failsafe-core.workspace = true
+failsafe-port.workspace = true
+failsafe-send.workspace = true
+failsafe-shell.workspace = true
+failsafe-transport = { workspace = true, features = ["iroh", "iroh-blobs"] }
+async-trait.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync"] }

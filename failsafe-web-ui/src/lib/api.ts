@@ -13,6 +13,7 @@ import type {
   DeviceInfo,
   DeviceListResponse,
   DevicePatchRequest,
+  FeaturesListResponse,
   PairingCreateResponse,
   TotpDisableRequest,
   TotpEnableRequest,
@@ -160,6 +161,11 @@ export async function logout(): Promise<void> {
     }).catch(() => undefined)
   }
   clearToken()
+}
+
+export async function listFeatures(): Promise<FeaturesListResponse> {
+  const response = await fetch("/api/v1/features")
+  return parseResponse(response)
 }
 
 export async function listDevices(): Promise<DeviceListResponse> {

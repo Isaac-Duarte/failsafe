@@ -79,8 +79,18 @@ export type DeviceUpsertRequest = {
 	enabled_features: FeatureId[],
 };
 
-/**  Identifies a sync feature */
-export type FeatureId = "clipboard" | "shell" | "port_forward" | "file_send";
+/**  Identifies a sync feature by stable string id (e.g. `"clipboard"`). */
+export type FeatureId = string;
+
+export type FeatureInfo = {
+	id: string,
+	label: string,
+	description: string,
+};
+
+export type FeaturesListResponse = {
+	features: FeatureInfo[],
+};
 
 export type PairingCreateResponse = {
 	code: string,

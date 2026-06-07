@@ -34,7 +34,7 @@ async fn send_receive_ack_roundtrip() {
     let peers = Arc::new(PeerDirectory::new());
     peers.replace_peers([receiver_id]).await;
     peers
-        .set_feature_enabled(receiver_id, FeatureId::FileSend, true)
+        .set_feature_enabled(receiver_id, FeatureId::from_static("file_send"), true)
         .await;
 
     let receiver: Arc<dyn Transport> = receiver_transport.clone();
@@ -47,7 +47,7 @@ async fn send_receive_ack_roundtrip() {
             coordinator.clone(),
         )))
         .unwrap();
-    receiver_registry.enable(FeatureId::FileSend).unwrap();
+    receiver_registry.enable(FeatureId::from_static("file_send")).unwrap();
 
     let transfer_id = Uuid::new_v4();
     let payload = SendPayload {
@@ -66,7 +66,7 @@ async fn send_receive_ack_roundtrip() {
         .send(FeatureMessage::new(
             sender_id,
             receiver_id,
-            FeatureId::FileSend,
+            FeatureId::from_static("file_send"),
             encode_envelope(&SendEnvelope::Transfer(payload)),
         ))
         .await
@@ -86,7 +86,7 @@ async fn send_receive_ack_roundtrip() {
             .recv()
             .await
             .expect("receive send event");
-        assert_eq!(message.feature, FeatureId::FileSend);
+        assert_eq!(message.feature, FeatureId::from_static("file_send"));
         match crate::payload::decode_envelope(&message.payload).expect("decode send envelope") {
             SendEnvelope::Progress(progress) => {
                 assert_eq!(progress.transfer_id, transfer_id);

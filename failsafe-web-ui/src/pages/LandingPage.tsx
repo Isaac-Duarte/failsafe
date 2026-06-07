@@ -20,8 +20,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  KNOWN_FEATURES,
 } from "@failsafe/ui"
+import { useFeatures } from "@/hooks/useFeatures"
 import { isAuthenticated } from "@/lib/auth"
 
 const SHIPPED_FEATURE_ICONS: Record<string, LucideIcon> = {
@@ -65,6 +65,7 @@ const ROADMAP_FEATURES = [
 
 export function LandingPage() {
   const authenticated = isAuthenticated()
+  const { features } = useFeatures()
 
   return (
     <div className="flex w-full flex-col gap-16 py-4 md:gap-20 md:py-8">
@@ -112,7 +113,7 @@ export function LandingPage() {
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {KNOWN_FEATURES.map((feature) => {
+          {features.map((feature) => {
             const Icon = SHIPPED_FEATURE_ICONS[feature.id] ?? Clipboard
             return (
               <Card

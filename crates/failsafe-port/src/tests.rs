@@ -8,7 +8,7 @@ use failsafe_core::control::{
     recv_response, send_request, send_response, write_control_token,
 };
 use failsafe_core::device::DeviceId;
-use failsafe_core::feature::FeatureId;
+use failsafe_core::feature::{ControlContext, FeatureControl, FeatureId, FeatureSpec};
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_transport::iroh::{IrohConfig, IrohTransport};
@@ -18,7 +18,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UnixStream};
 use tokio::sync::RwLock;
 
-use crate::{handle_incoming_port, start_port_acceptor};
+use crate::{
+    OpenPortForwardRequest, PortFeatureControl, PortFeatureSpec, handle_incoming_port,
+    start_port_acceptor,
+};
 
 struct ControlServer {
     path: PathBuf,
@@ -75,65 +78,28 @@ impl ControlServer {
             return;
         }
         let request = envelope.request;
-
-        match request {
-            ControlRequest::OpenPortForward {
-                target,
-                local_port,
-                remote_port,
-                protocol,
-            } => {
-                let local_features = self.local_features.read().await.clone();
-                let listener = match crate::prepare_outgoing_port_forward(
-                    &self.iroh,
-                    &self.peers,
-                    &local_features,
-                    target,
-                    local_port,
-                    remote_port,
-                    protocol,
-                )
-                .await
-                {
-                    Ok(listener) => listener,
-                    Err(error) => {
-                        send_response(
-                            &mut stream,
-                            &ControlResponse::Error {
-                                message: error.to_string(),
-                            },
-                        )
-                        .await
-                        .expect("send error");
-                        return;
-                    }
-                };
-
-                send_response(&mut stream, &ControlResponse::Ready)
-                    .await
-                    .expect("send ready");
-
-                let (control_read, _) = tokio::io::split(stream);
-                crate::run_outgoing_port_forward(
-                    self.iroh.clone(),
-                    target,
-                    local_port,
-                    remote_port,
-                    listener,
-                    control_read,
-                )
-                .await;
-            }
-            ControlRequest::OpenShell { .. } => {
-                panic!("unexpected shell request in port test");
-            }
-            ControlRequest::SendFiles { .. } => {
-                panic!("unexpected send request in port test");
-            }
-            ControlRequest::CancelTransfers => {
-                panic!("unexpected cancel transfers request in port test");
-            }
+        if request.feature != PortFeatureSpec::feature_id() {
+            send_response(
+                &mut stream,
+                &ControlResponse::Error {
+                    message: format!("unexpected feature `{}`", request.feature),
+                },
+            )
+            .await
+            .expect("send error");
+            return;
         }
+
+        let local_features = self.local_features.read().await;
+        let ctx = ControlContext {
+            peers: &self.peers,
+            local_features: &local_features,
+        };
+        let control = PortFeatureControl::new(self.iroh.clone());
+        control
+            .handle_control(&ctx, stream, request.body)
+            .await
+            .expect("handle port forward control");
     }
 }
 
@@ -164,12 +130,16 @@ async fn open_port_forward_client(
     send_request(
         &mut stream,
         &token,
-        &ControlRequest::OpenPortForward {
-            target,
-            local_port,
-            remote_port,
-            protocol: PortProtocol::Tcp,
-        },
+        &ControlRequest::new(
+            PortFeatureSpec::feature_id(),
+            OpenPortForwardRequest {
+                target,
+                local_port,
+                remote_port,
+                protocol: PortProtocol::Tcp,
+            },
+        )
+        .expect("encode control request"),
     )
     .await
     .expect("send request");
@@ -252,10 +222,10 @@ async fn forwards_local_tcp_connections_to_remote_port() {
     let peers = Arc::new(PeerDirectory::new());
     peers.replace_peers([device_b]).await;
     peers
-        .set_feature_enabled(device_b, FeatureId::PortForward, true)
+        .set_feature_enabled(device_b, FeatureId::from_static("port_forward"), true)
         .await;
 
-    let local_features = Arc::new(RwLock::new(HashSet::from([FeatureId::PortForward])));
+    let local_features = Arc::new(RwLock::new(HashSet::from([FeatureId::from_static("port_forward")])));
     let server = Arc::new(ControlServer::new(
         temp.path().join("port-control.sock"),
         temp.path().join("port-control.token"),

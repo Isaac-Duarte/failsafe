@@ -1,4 +1,6 @@
-use failsafe_core::feature::{FeatureError, FeatureId};
+use failsafe_core::feature::{FeatureError, FeatureSpec};
+
+use crate::feature::ClipboardFeatureSpec;
 use serde::{Deserialize, Serialize};
 
 pub const CLIPBOARD_PAYLOAD_VERSION: u32 = 2;
@@ -64,7 +66,7 @@ pub fn decode(bytes: &[u8]) -> Result<ClipboardPayload, FeatureError> {
 
     let legacy: LegacyPayload = serde_json::from_slice(bytes).map_err(|error| {
         FeatureError::Failed(
-            FeatureId::Clipboard,
+            ClipboardFeatureSpec::feature_id(),
             format!("invalid clipboard payload: {error}"),
         )
     })?;

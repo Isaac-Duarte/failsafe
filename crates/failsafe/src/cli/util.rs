@@ -4,6 +4,7 @@ use failsafe::DaemonError;
 use failsafe_core::api::DeviceInfo;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_feature_registry::parse_feature_id;
 
 pub fn parse_device_id(id: &str) -> Result<DeviceId, DaemonError> {
     DeviceId::from_str(id.trim())
@@ -18,7 +19,7 @@ pub fn parse_feature_list(features: &str) -> Result<Vec<FeatureId>, DaemonError>
     features
         .split(',')
         .map(|part| {
-            FeatureId::from_str(part.trim()).map_err(|error| {
+            parse_feature_id(part.trim()).map_err(|error| {
                 DaemonError::Config(format!("unknown feature `{}`: {error}", part.trim()))
             })
         })
@@ -149,7 +150,7 @@ mod tests {
     #[test]
     fn parse_feature_list_splits_comma_separated_values() {
         let features = parse_feature_list("clipboard").unwrap();
-        assert_eq!(features, vec![FeatureId::Clipboard]);
+        assert_eq!(features, vec![FeatureId::from_static("clipboard")]);
     }
 
     #[test]

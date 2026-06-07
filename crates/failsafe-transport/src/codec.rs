@@ -52,7 +52,7 @@ mod tests {
         let message = FeatureMessage::new(
             DeviceId::new(),
             DeviceId::new(),
-            FeatureId::Clipboard,
+            FeatureId::from_static("clipboard"),
             b"hello",
         );
 

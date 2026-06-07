@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::SendPhase;
 use failsafe_core::device::DeviceId;
-use failsafe_core::feature::{Feature, FeatureError, FeatureId};
+use failsafe_core::feature::{Feature, FeatureError, FeatureId, FeatureSpec};
 use failsafe_core::message::FeatureMessage;
 use failsafe_transport::blobs::{BlobHash, BlobTransfer};
 use failsafe_transport::transport::{Transport, TransportError};
@@ -28,6 +28,24 @@ use crate::transfer_state::{
     ReceiveStage, ReceiveTransferState, load_receive_state, remove_receive_state,
     save_receive_state,
 };
+
+pub const ID: &str = "file_send";
+
+pub struct SendFeatureSpec;
+
+impl FeatureSpec for SendFeatureSpec {
+    fn id() -> &'static str {
+        ID
+    }
+
+    fn label() -> &'static str {
+        "File Send"
+    }
+
+    fn description() -> &'static str {
+        "Receive explicit file transfers from other devices"
+    }
+}
 
 pub struct SendFeature {
     blob_transfer: Arc<dyn BlobTransfer>,
@@ -134,7 +152,7 @@ impl SendFeature {
 
         if payload.version != SEND_PAYLOAD_VERSION {
             return Err(FeatureError::Failed(
-                FeatureId::FileSend,
+                SendFeatureSpec::feature_id(),
                 format!(
                     "unsupported send payload version {} (expected {SEND_PAYLOAD_VERSION})",
                     payload.version
@@ -222,7 +240,7 @@ impl SendFeature {
                         },
                     )
                     .await;
-                return Err(FeatureError::Failed(FeatureId::FileSend, message));
+                return Err(FeatureError::Failed(SendFeatureSpec::feature_id(), message));
             }
         }
 
@@ -274,7 +292,7 @@ impl SendFeature {
                 let message = FeatureMessage::new(
                     local_id,
                     progress_sender,
-                    FeatureId::FileSend,
+                    SendFeatureSpec::feature_id(),
                     encode_envelope(&envelope),
                 );
                 if let Err(error) = progress_transport.send(message).await {
@@ -394,7 +412,7 @@ impl SendFeature {
         let message = FeatureMessage::new(
             local_id,
             to,
-            FeatureId::FileSend,
+            SendFeatureSpec::feature_id(),
             encode_envelope(&envelope),
         );
         match self.transport.send(message).await {
@@ -463,7 +481,7 @@ impl SendFeature {
             let state = pending.remove(&transfer_id).expect("transfer state present");
             state
                 .into_payload()
-                .map_err(|error| FeatureError::Failed(FeatureId::FileSend, error))?
+                .map_err(|error| FeatureError::Failed(SendFeatureSpec::feature_id(), error))?
         };
         self.spawn_transfer_handler(from, payload);
         Ok(true)
@@ -499,7 +517,7 @@ impl SendFeature {
 #[async_trait]
 impl Feature for SendFeature {
     fn id(&self) -> FeatureId {
-        FeatureId::FileSend
+        SendFeatureSpec::feature_id()
     }
 
     async fn start(&mut self) -> Result<(), FeatureError> {
@@ -544,7 +562,7 @@ impl Feature for SendFeature {
                     let mut pending = self.pending_chunked_transfers.lock().await;
                     let Some(state) = pending.get_mut(&transfer_id) else {
                         return Err(FeatureError::Failed(
-                            FeatureId::FileSend,
+                            SendFeatureSpec::feature_id(),
                             format!(
                                 "received transfer chunk for unknown transfer {transfer_id}"
                             ),
@@ -562,7 +580,7 @@ impl Feature for SendFeature {
                     let mut pending = self.pending_chunked_transfers.lock().await;
                     let Some(state) = pending.get_mut(&transfer_id) else {
                         return Err(FeatureError::Failed(
-                            FeatureId::FileSend,
+                            SendFeatureSpec::feature_id(),
                             format!(
                                 "received transfer end for unknown transfer {transfer_id}"
                             ),
@@ -590,14 +608,14 @@ impl Feature for SendFeature {
 }
 
 fn transport_error_to_feature_error(error: TransportError) -> FeatureError {
-    FeatureError::Failed(FeatureId::FileSend, error.to_string())
+    FeatureError::Failed(SendFeatureSpec::feature_id(), error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use failsafe_core::feature::Feature;
+    use failsafe_core::feature::{Feature, FeatureSpec};
     use failsafe_core::message::FeatureMessage;
     use failsafe_transport::blobs::MockBlobTransfer;
     use failsafe_transport::mock::MockTransport;
@@ -643,7 +661,7 @@ mod tests {
             .handle_message(FeatureMessage::new(
                 local_id,
                 peer_id,
-                FeatureId::FileSend,
+                SendFeatureSpec::feature_id(),
                 encode_envelope(&SendEnvelope::Transfer(payload)),
             ))
             .await
@@ -652,7 +670,7 @@ mod tests {
         let mut saw_progress = false;
         for _ in 0..50 {
             if let Ok(Some(ack_message)) = local_transport.try_recv().await {
-                assert_eq!(ack_message.feature, FeatureId::FileSend);
+                assert_eq!(ack_message.feature, SendFeatureSpec::feature_id());
                 match decode_envelope(&ack_message.payload).unwrap() {
                     SendEnvelope::Progress(progress) => {
                         assert_eq!(progress.transfer_id, transfer_id);

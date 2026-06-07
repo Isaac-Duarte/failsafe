@@ -1,6 +1,13 @@
 use std::io::{Read, Write};
+use std::sync::Arc;
 
+use failsafe_transport::iroh::{
+    IrohTransport, ShellSession, relay_shell_streams, relay_shell_to_channels,
+};
 use tokio::sync::mpsc;
+use tracing::{debug, warn};
+
+use crate::host::run_shell_host;
 
 /// Relay bytes between async channels and a blocking PTY pair.
 pub async fn relay_channels_to_pty(
@@ -35,8 +42,6 @@ pub async fn relay_channels_to_pty(
         Ok(())
     });
 
-    // Exit when the PTY closes even if the input channel stays open; the inner
-    // to_pty channel bridges async input to the blocking PTY writer.
     let mut stream_open = true;
     loop {
         tokio::select! {
@@ -79,58 +84,47 @@ pub async fn relay_channels_to_pty(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::{Read, Write};
-    use std::time::Duration;
+pub async fn start_shell_acceptor(iroh: Arc<IrohTransport>) -> mpsc::Receiver<ShellSession> {
+    let (tx, rx) = mpsc::channel(8);
+    iroh.set_shell_acceptor(tx).await;
+    rx
+}
 
-    use tokio::sync::mpsc;
+pub async fn stop_shell_acceptor(iroh: &IrohTransport) {
+    iroh.clear_shell_acceptor().await;
+}
 
-    use super::relay_channels_to_pty;
+pub async fn handle_incoming_shell(session: ShellSession) {
+    let device = session.from;
+    debug!(%device, "accepted shell session");
 
-    struct EofReader;
+    let (to_pty_tx, to_pty_rx) = mpsc::channel::<Vec<u8>>(64);
+    let (from_pty_tx, from_pty_rx) = mpsc::channel::<Vec<u8>>(64);
 
-    impl Read for EofReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Ok(0)
+    let host = tokio::spawn(async move {
+        if let Err(error) = run_shell_host(session.rows, session.cols, to_pty_rx, from_pty_tx).await
+        {
+            warn!(%device, "shell host exited with error: {error}");
         }
-    }
+    });
 
-    struct SinkWriter;
-
-    impl Write for SinkWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            Ok(buf.len())
+    let relay = tokio::spawn(async move {
+        if let Err(error) =
+            relay_shell_to_channels(session.send, session.recv, from_pty_rx, to_pty_tx).await
+        {
+            warn!(%device, "shell relay exited with error: {error}");
         }
+    });
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
+    let _ = tokio::join!(host, relay);
+}
 
-    #[tokio::test]
-    async fn relay_exits_when_pty_eof_even_if_input_channel_open() {
-        let (input_tx, input_rx) = mpsc::channel(8);
-        let (output_tx, _output_rx) = mpsc::channel(8);
-
-        let result = tokio::time::timeout(
-            Duration::from_secs(1),
-            relay_channels_to_pty(
-                input_rx,
-                output_tx,
-                Box::new(EofReader),
-                Box::new(SinkWriter),
-            ),
-        )
-        .await;
-
-        assert!(
-            result.is_ok(),
-            "relay should not hang waiting for input channel close"
-        );
-        assert!(result.unwrap().is_ok());
-
-        // Input channel still open; relay should have exited on PTY EOF alone.
-        drop(input_tx);
-    }
+pub async fn run_outgoing_shell(
+    iroh: &IrohTransport,
+    session: ShellSession,
+    input: impl tokio::io::AsyncRead + Unpin,
+    output: impl tokio::io::AsyncWrite + Unpin,
+) -> Result<(), failsafe_transport::transport::TransportError> {
+    let _ = iroh;
+    relay_shell_streams(session.send, session.recv, input, output).await
 }

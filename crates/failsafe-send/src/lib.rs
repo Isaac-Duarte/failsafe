@@ -1,4 +1,5 @@
 mod cancel;
+mod control;
 mod coordinator;
 mod feature;
 mod files;
@@ -17,8 +18,9 @@ mod transfer_state;
 mod integration_tests;
 
 pub use cancel::{cancel_all_incomplete_receives, cancel_all_incomplete_sends};
+pub use control::{SendControlBody, SendFeatureControl, SendFilesRequest};
 pub use coordinator::SendCoordinator;
-pub use feature::SendFeature;
+pub use feature::{SendFeature, SendFeatureSpec, ID as SEND_FEATURE_ID};
 pub use files::{
     collect_file_preview, collect_import_sources, format_bytes, prepare_send_paths,
     read_files_from_paths,

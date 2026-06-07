@@ -65,7 +65,7 @@ async fn upsert_test_device(app: &axum::Router, token: &str, device_id: DeviceId
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -191,7 +191,7 @@ async fn register_login_and_manage_devices() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -372,7 +372,7 @@ async fn patch_rename_and_features() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -429,7 +429,7 @@ async fn delete_hides_device_and_blocks_upsert() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -481,7 +481,7 @@ async fn delete_hides_device_and_blocks_upsert() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -551,7 +551,7 @@ async fn deleted_device_can_rejoin_via_pairing_redeem() {
                             device_id,
                             name: "laptop".to_owned(),
                             iroh_public_key: "restored-key".to_owned(),
-                            enabled_features: vec![FeatureId::Clipboard],
+                            enabled_features: vec![FeatureId::from_static("clipboard")],
                         }),
                     })
                     .unwrap(),
@@ -604,7 +604,7 @@ async fn deleted_device_can_rejoin_via_pairing_redeem() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "restored-key".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -680,7 +680,7 @@ async fn redeem_without_device_does_not_restore_deleted_device() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -709,7 +709,7 @@ async fn upsert_update_ignores_features_on_existing_device() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -749,7 +749,7 @@ async fn upsert_update_ignores_features_on_existing_device() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "updated-key".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -794,7 +794,7 @@ async fn heartbeat_does_not_revert_patched_name() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -834,7 +834,7 @@ async fn heartbeat_does_not_revert_patched_name() {
                         device_id,
                         name: "laptop".to_owned(),
                         iroh_public_key: "updated-key".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))
@@ -1013,7 +1013,7 @@ async fn protected_routes_reject_token_for_missing_account() {
                         device_id: DeviceId::new(),
                         name: "laptop".to_owned(),
                         iroh_public_key: "abc123".to_owned(),
-                        enabled_features: vec![FeatureId::Clipboard],
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
                     })
                     .unwrap(),
                 ))

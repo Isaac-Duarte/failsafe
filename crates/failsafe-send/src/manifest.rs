@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use failsafe_core::device::DeviceId;
-use failsafe_core::feature::FeatureId;
+use failsafe_core::feature::FeatureSpec;
+
+use crate::feature::SendFeatureSpec;
 use failsafe_core::message::FeatureMessage;
 use failsafe_transport::codec;
 
@@ -80,7 +82,7 @@ fn transfer_envelope_fits(from: DeviceId, to: DeviceId, envelope: &SendEnvelope)
     let message = FeatureMessage::new(
         from,
         to,
-        FeatureId::FileSend,
+        SendFeatureSpec::feature_id(),
         encode_envelope(envelope),
     );
     codec::encode(&message).is_ok()

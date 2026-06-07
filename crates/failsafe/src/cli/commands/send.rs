@@ -7,8 +7,10 @@ use failsafe_core::api::DeviceInfo;
 use failsafe_core::control::connect_control;
 use failsafe_core::control::{ControlEvent, ControlStream, SendPhase, send_phase_label};
 use failsafe_core::device::DeviceId;
+use failsafe_core::feature::FeatureSpec;
 use failsafe_send::{
-    collect_file_preview, format_bytes, list_incomplete_sends, load_send_state, prepare_send_paths,
+    SendControlBody, SendFeatureSpec, SendFilesRequest, collect_file_preview, format_bytes,
+    list_incomplete_sends, load_send_state, prepare_send_paths,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Confirm;
@@ -93,12 +95,16 @@ pub async fn send(
 
     send_request(
         &mut stream,
-        &ControlRequest::SendFiles {
-            target: target.device_id,
-            paths,
-            transfer_id,
-            resume: resume_send,
-        },
+        &ControlRequest::new(
+            SendFeatureSpec::feature_id(),
+            SendControlBody::SendFiles(SendFilesRequest {
+                target: target.device_id,
+                paths,
+                transfer_id,
+                resume: resume_send,
+            }),
+        )
+        .map_err(DaemonError::Control)?,
     )
     .await?;
 
@@ -320,7 +326,12 @@ async fn cancel_all_transfers(yes: bool) -> Result<(), DaemonError> {
         .await
         .map_err(map_control_connect_error)?;
 
-    send_request(&mut stream, &ControlRequest::CancelTransfers).await?;
+    send_request(
+        &mut stream,
+        &ControlRequest::new(SendFeatureSpec::feature_id(), SendControlBody::CancelAll)
+            .map_err(DaemonError::Control)?,
+    )
+    .await?;
 
     expect_cancel_transfers_response(&mut stream).await
 }

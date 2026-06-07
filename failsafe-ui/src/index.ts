@@ -58,10 +58,9 @@ export {
   TableRow,
 } from "./components/ui/table"
 export {
+  featureMap,
   formatFeatureDescription,
   formatFeatureLabel,
-  isKnownFeature,
-  KNOWN_FEATURES,
   mergeEnabledFeatures,
   type KnownFeatureId,
 } from "./lib/features"
@@ -82,6 +81,8 @@ export type {
   DevicePatchRequest,
   DeviceUpsertRequest,
   FeatureId,
+  FeatureInfo,
+  FeaturesListResponse,
   PairingCreateResponse,
   PairingRedeemRequest,
   TotpDisableRequest,

@@ -14,6 +14,7 @@ import {
 import { formatFeatureLabel } from "@failsafe/ui"
 import { formatRelativeTime } from "@failsafe/ui"
 import type { DeviceInfo } from "@failsafe/ui"
+import { useFeatures } from "@/hooks/useFeatures"
 
 interface DeviceTableProps {
   devices: DeviceInfo[]
@@ -22,6 +23,8 @@ interface DeviceTableProps {
 }
 
 export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
+  const { features } = useFeatures()
+
   return (
     <Table>
       <TableHeader>
@@ -51,7 +54,7 @@ export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
                 ) : (
                   device.enabled_features.map((feature) => (
                     <Badge key={feature} variant="secondary">
-                      {formatFeatureLabel(feature)}
+                      {formatFeatureLabel(feature, features)}
                     </Badge>
                   ))
                 )}

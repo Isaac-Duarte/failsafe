@@ -6,6 +6,7 @@ import { Button } from "@failsafe/ui"
 import { formatFeatureLabel } from "@failsafe/ui"
 import { formatRelativeTime } from "@failsafe/ui"
 import type { DeviceInfo } from "@failsafe/ui"
+import { useFeatures } from "@/hooks/useFeatures"
 
 interface DeviceCardProps {
   device: DeviceInfo
@@ -14,6 +15,8 @@ interface DeviceCardProps {
 }
 
 export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
+  const { features } = useFeatures()
+
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -47,7 +50,7 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
           ) : (
             device.enabled_features.map((feature) => (
               <Badge key={feature} variant="secondary">
-                {formatFeatureLabel(feature)}
+                {formatFeatureLabel(feature, features)}
               </Badge>
             ))
           )}
