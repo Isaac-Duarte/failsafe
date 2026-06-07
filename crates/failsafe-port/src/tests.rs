@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use failsafe_core::control::{
-    ControlRequest, ControlResponse, PortProtocol, recv_request, recv_response, send_request,
-    send_response,
+    ControlRequest, ControlResponse, PortProtocol, generate_control_token, recv_envelope,
+    recv_response, send_request, send_response, write_control_token,
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
@@ -22,6 +22,8 @@ use crate::{handle_incoming_port, start_port_acceptor};
 
 struct ControlServer {
     path: PathBuf,
+    token_path: PathBuf,
+    token: String,
     iroh: Arc<IrohTransport>,
     local_features: Arc<RwLock<HashSet<FeatureId>>>,
     peers: Arc<PeerDirectory>,
@@ -30,12 +32,16 @@ struct ControlServer {
 impl ControlServer {
     fn new(
         path: PathBuf,
+        token_path: PathBuf,
         iroh: Arc<IrohTransport>,
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
     ) -> Self {
+        let token = generate_control_token();
         Self {
             path,
+            token_path,
+            token,
             iroh,
             local_features,
             peers,
@@ -49,13 +55,26 @@ impl ControlServer {
         if self.path.exists() {
             let _ = std::fs::remove_file(&self.path);
         }
+        write_control_token(&self.token_path, &self.token).expect("write control token");
         tokio::net::UnixListener::bind(&self.path).expect("bind control socket")
     }
 
     async fn handle_connection(&self, mut stream: UnixStream) {
-        let request = recv_request(&mut stream)
+        let envelope = recv_envelope(&mut stream)
             .await
             .expect("read control request");
+        if envelope.token != self.token {
+            send_response(
+                &mut stream,
+                &ControlResponse::Error {
+                    message: "unauthorized".to_owned(),
+                },
+            )
+            .await
+            .expect("send unauthorized");
+            return;
+        }
+        let request = envelope.request;
 
         match request {
             ControlRequest::OpenPortForward {
@@ -130,6 +149,7 @@ async fn wait_for_connection(transport: &IrohTransport, peer: DeviceId) {
 
 async fn open_port_forward_client(
     socket_path: &PathBuf,
+    token_path: &PathBuf,
     target: DeviceId,
     local_port: u16,
     remote_port: u16,
@@ -137,8 +157,13 @@ async fn open_port_forward_client(
     let mut stream = UnixStream::connect(socket_path)
         .await
         .expect("connect control socket");
+    let token = std::fs::read_to_string(token_path)
+        .expect("read control token")
+        .trim()
+        .to_owned();
     send_request(
         &mut stream,
+        &token,
         &ControlRequest::OpenPortForward {
             target,
             local_port,
@@ -158,6 +183,7 @@ async fn open_port_forward_client(
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn forwards_local_tcp_connections_to_remote_port() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -232,6 +258,7 @@ async fn forwards_local_tcp_connections_to_remote_port() {
     let local_features = Arc::new(RwLock::new(HashSet::from([FeatureId::PortForward])));
     let server = Arc::new(ControlServer::new(
         temp.path().join("port-control.sock"),
+        temp.path().join("port-control.token"),
         transport_a.clone(),
         local_features,
         peers,
@@ -260,8 +287,15 @@ async fn forwards_local_tcp_connections_to_remote_port() {
     };
 
     let socket_path = temp.path().join("port-control.sock");
-    let control_stream =
-        open_port_forward_client(&socket_path, device_b, local_forward_port, echo_port).await;
+    let token_path = temp.path().join("port-control.token");
+    let control_stream = open_port_forward_client(
+        &socket_path,
+        &token_path,
+        device_b,
+        local_forward_port,
+        echo_port,
+    )
+    .await;
 
     let send_through_forward = async {
         let mut client = TcpStream::connect(("127.0.0.1", local_forward_port))

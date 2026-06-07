@@ -26,6 +26,12 @@ pub enum PortProtocol {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlEnvelope {
+    pub token: String,
+    pub request: ControlRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ControlRequest {
     OpenShell {
@@ -107,6 +113,46 @@ pub fn control_socket_path() -> Result<PathBuf, ControlError> {
     transport::endpoint_path()
 }
 
+pub fn control_token_path() -> Result<PathBuf, ControlError> {
+    let base = dirs::config_dir().ok_or_else(|| {
+        ControlError::Config("could not determine control token directory".to_owned())
+    })?;
+    Ok(base.join("failsafe").join("control.token"))
+}
+
+pub fn generate_control_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+pub fn write_control_token(path: &Path, token: &str) -> Result<(), ControlError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, token)?;
+    restrict_file_permissions(path)?;
+    Ok(())
+}
+
+pub fn read_control_token(path: &Path) -> Result<String, ControlError> {
+    let token = std::fs::read_to_string(path)?;
+    let token = token.trim().to_owned();
+    if token.is_empty() {
+        return Err(ControlError::Config(
+            "control token file is empty".to_owned(),
+        ));
+    }
+    Ok(token)
+}
+
+fn restrict_file_permissions(path: &Path) -> Result<(), ControlError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
 pub async fn write_message<S>(stream: &mut S, message: &[u8]) -> Result<(), ControlError>
 where
     S: AsyncWrite + Unpin,
@@ -134,11 +180,19 @@ where
     Ok(payload)
 }
 
-pub async fn send_request<S>(stream: &mut S, request: &ControlRequest) -> Result<(), ControlError>
+pub async fn send_request<S>(
+    stream: &mut S,
+    token: &str,
+    request: &ControlRequest,
+) -> Result<(), ControlError>
 where
     S: AsyncWrite + Unpin,
 {
-    let payload = serde_json::to_vec(request).map_err(|error| {
+    let envelope = ControlEnvelope {
+        token: token.to_owned(),
+        request: request.clone(),
+    };
+    let payload = serde_json::to_vec(&envelope).map_err(|error| {
         ControlError::Config(format!("failed to encode control request: {error}"))
     })?;
     write_message(stream, &payload).await
@@ -167,13 +221,20 @@ where
     write_message(stream, &payload).await
 }
 
-pub async fn recv_request<S>(stream: &mut S) -> Result<ControlRequest, ControlError>
+pub async fn recv_envelope<S>(stream: &mut S) -> Result<ControlEnvelope, ControlError>
 where
     S: AsyncRead + Unpin,
 {
     let payload = read_message(stream).await?;
     serde_json::from_slice(&payload)
         .map_err(|error| ControlError::Config(format!("failed to decode control request: {error}")))
+}
+
+pub async fn recv_request<S>(stream: &mut S) -> Result<ControlRequest, ControlError>
+where
+    S: AsyncRead + Unpin,
+{
+    Ok(recv_envelope(stream).await?.request)
 }
 
 pub async fn write_event<S>(stream: &mut S, event: &ControlEvent) -> Result<(), ControlError>

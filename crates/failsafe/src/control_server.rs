@@ -5,7 +5,10 @@ use std::sync::Arc;
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::control::PortProtocol;
 use failsafe_core::control::{ControlEvent, SendPhase, SendPathSpec};
-use failsafe_core::control::{ControlListener, ControlStream, bind_control};
+use failsafe_core::control::{
+    ControlListener, ControlStream, bind_control, control_token_path, generate_control_token,
+    recv_envelope, write_control_token,
+};
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::message::FeatureMessage;
@@ -26,13 +29,14 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::control::{
-    ControlRequest, ControlResponse, control_socket_path, recv_request, send_response, write_event,
+    ControlRequest, ControlResponse, control_socket_path, send_response, write_event,
 };
 use crate::error::DaemonError;
 use crate::shell_service::run_outgoing_shell;
 
 pub struct ControlServer {
     path: PathBuf,
+    token: String,
     iroh: Arc<IrohTransport>,
     transport: Arc<dyn Transport>,
     blob_transfer: Arc<dyn BlobTransfer>,
@@ -54,8 +58,10 @@ impl ControlServer {
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
     ) -> Result<Self, DaemonError> {
+        let token = generate_control_token();
         Ok(Self::with_path(
             control_socket_path()?,
+            token,
             iroh,
             transport,
             blob_transfer,
@@ -69,6 +75,7 @@ impl ControlServer {
 
     pub(crate) fn with_path(
         path: PathBuf,
+        token: String,
         iroh: Arc<IrohTransport>,
         transport: Arc<dyn Transport>,
         blob_transfer: Arc<dyn BlobTransfer>,
@@ -80,6 +87,7 @@ impl ControlServer {
     ) -> Self {
         Self {
             path,
+            token,
             iroh,
             transport,
             blob_transfer,
@@ -92,12 +100,25 @@ impl ControlServer {
     }
 
     pub async fn bind(&self) -> Result<ControlListener, DaemonError> {
+        let token_path = control_token_path().map_err(DaemonError::Control)?;
+        write_control_token(&token_path, &self.token).map_err(DaemonError::Control)?;
         bind_control(&self.path).await.map_err(DaemonError::Control)
     }
 
     pub async fn handle_connection(&self, mut stream: ControlStream) {
-        let request = match recv_request(&mut stream).await {
-            Ok(request) => request,
+        let request = match recv_envelope(&mut stream).await {
+            Ok(envelope) if envelope.token == self.token => envelope.request,
+            Ok(_) => {
+                warn!("rejected control connection with invalid token");
+                let _ = send_response(
+                    &mut stream,
+                    &ControlResponse::Error {
+                        message: "unauthorized".to_owned(),
+                    },
+                )
+                .await;
+                return;
+            }
             Err(error) => {
                 warn!("failed to read control request: {error}");
                 let _ = send_response(
@@ -555,6 +576,8 @@ mod tests {
     use tokio::net::UnixStream;
     use tokio::sync::{RwLock, mpsc};
 
+    use failsafe_core::control::generate_control_token;
+
     use crate::control::{ControlRequest, ControlResponse, recv_response, send_request};
     use crate::shell_service::handle_incoming_shell;
 
@@ -596,6 +619,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live Iroh P2P networking"]
     async fn accepts_concurrent_shell_connections_to_same_peer() {
         let temp = TempDir::new().expect("tempdir");
         let device_a = DeviceId::new();
@@ -646,6 +670,7 @@ mod tests {
         let coordinator = SendCoordinator::new();
         let server = Arc::new(ControlServer::with_path(
             temp.path().join("control.sock"),
+            generate_control_token(),
             transport_a.clone(),
             transport_a.clone(),
             transport_a.blob_transfer().clone(),

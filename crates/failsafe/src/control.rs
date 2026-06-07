@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use failsafe_core::control::ControlError;
 use failsafe_core::control::ControlStream;
 pub use failsafe_core::control::{
-    ControlEvent, ControlRequest, ControlResponse, SendPhase, read_event, send_phase_label,
-    write_event,
+    ControlEvent, ControlRequest, ControlResponse, SendPhase, control_token_path,
+    read_control_token, read_event, send_phase_label, write_event,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -28,11 +28,22 @@ pub fn map_control_connect_error(error: ControlError) -> DaemonError {
     }
 }
 
+pub fn load_control_token() -> Result<String, DaemonError> {
+    let path = control_token_path().map_err(DaemonError::Control)?;
+    if !path.exists() {
+        return Err(DaemonError::Config(
+            "daemon is not running; start it with `failsafe run`".to_owned(),
+        ));
+    }
+    read_control_token(&path).map_err(DaemonError::Control)
+}
+
 pub async fn send_request(
     stream: &mut ControlStream,
     request: &ControlRequest,
 ) -> Result<(), DaemonError> {
-    failsafe_core::control::send_request(stream, request)
+    let token = load_control_token()?;
+    failsafe_core::control::send_request(stream, &token, request)
         .await
         .map_err(DaemonError::Control)
 }

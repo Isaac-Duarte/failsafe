@@ -32,9 +32,18 @@ pub async fn bind_control(path: &Path) -> Result<ControlListener, ControlError> 
         std::fs::create_dir_all(parent)?;
     }
     remove_stale_control_endpoint(path).await?;
-    UnixListener::bind(path)
-        .map(ControlListener)
-        .map_err(ControlError::Io)
+    let listener = UnixListener::bind(path).map(ControlListener).map_err(ControlError::Io)?;
+    restrict_socket_permissions(path)?;
+    Ok(listener)
+}
+
+fn restrict_socket_permissions(path: &Path) -> Result<(), ControlError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 pub async fn connect_control(path: &Path) -> Result<ControlStream, ControlError> {
