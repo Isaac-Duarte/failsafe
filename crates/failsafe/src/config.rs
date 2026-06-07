@@ -12,7 +12,7 @@ fn default_device_name() -> String {
 }
 
 fn default_server_url() -> String {
-    "http://127.0.0.1:8080".to_owned()
+    "https://failsafe.pendejo.dev".to_owned()
 }
 
 fn default_clipboard_max_file_bytes() -> u64 {

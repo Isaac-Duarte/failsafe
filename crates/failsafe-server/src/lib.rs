@@ -58,8 +58,10 @@ pub fn ensure_database_parent(database_url: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn resolve_encryption_key(jwt_secret: &str) -> String {
-    std::env::var("FAILSAFE_ENCRYPTION_KEY").unwrap_or_else(|_| jwt_secret.to_owned())
+pub fn load_encryption_key() -> Result<String, String> {
+    std::env::var("FAILSAFE_ENCRYPTION_KEY").map_err(|_| {
+        "FAILSAFE_ENCRYPTION_KEY environment variable is required".to_owned()
+    })
 }
 
 pub fn build_app(state: AppState) -> Router {
@@ -95,6 +97,7 @@ pub fn build_app(state: AppState) -> Router {
 pub async fn app_from_parts(
     database_url: &str,
     jwt_secret: &str,
+    encryption_key: &str,
 ) -> Result<Router, sea_orm::DbErr> {
     ensure_database_parent(database_url).map_err(|error| {
         sea_orm::DbErr::Custom(format!("failed to create database parent: {error}"))
@@ -103,7 +106,7 @@ pub async fn app_from_parts(
     let state = AppState {
         db,
         jwt: JwtService::new(jwt_secret),
-        encryption_key: resolve_encryption_key(jwt_secret),
+        encryption_key: encryption_key.to_owned(),
         login_limiter: rate_limit::RateLimiter::new(20, std::time::Duration::from_secs(60)),
         pairing_limiter: rate_limit::RateLimiter::new(10, std::time::Duration::from_secs(60)),
     };

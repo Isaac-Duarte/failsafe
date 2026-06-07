@@ -39,6 +39,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let jwt_secret = std::env::var("FAILSAFE_JWT_SECRET")
         .map_err(|_| "FAILSAFE_JWT_SECRET environment variable is required")?;
+    let encryption_key = failsafe_server::load_encryption_key()
+        .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
     let database_url = default_database_url()
         .ok_or("could not determine default database path for this platform")?;
 
@@ -53,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         db,
         jwt: JwtService::new(&jwt_secret),
-        encryption_key: failsafe_server::resolve_encryption_key(&jwt_secret),
+        encryption_key,
         login_limiter: failsafe_server::rate_limit::RateLimiter::new(20, std::time::Duration::from_secs(60)),
         pairing_limiter: failsafe_server::rate_limit::RateLimiter::new(10, std::time::Duration::from_secs(60)),
     };
