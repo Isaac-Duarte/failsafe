@@ -8,6 +8,7 @@ use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::api::DeviceUpsertRequest;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
+use failsafe_core::message::FeatureMessage;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
@@ -28,6 +29,29 @@ use crate::server::ServerClient;
 use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_shell_acceptor};
 use crate::sync::{apply_self_from_server, apply_server_devices};
 use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
+
+async fn ensure_acceptor_service<T>(
+    iroh: &Option<Arc<failsafe_transport::iroh::IrohTransport>>,
+    enabled: bool,
+    sessions: &mut Option<mpsc::Receiver<T>>,
+    start: impl FnOnce(Arc<failsafe_transport::iroh::IrohTransport>) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = mpsc::Receiver<T>> + Send>,
+    >,
+    stop: impl for<'a> FnOnce(
+        &'a failsafe_transport::iroh::IrohTransport,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>,
+) {
+    if enabled && sessions.is_none() {
+        if let Some(iroh) = iroh.clone() {
+            *sessions = Some(start(iroh).await);
+        }
+    } else if !enabled && sessions.is_some() {
+        if let Some(iroh) = iroh.as_ref() {
+            stop(iroh).await;
+        }
+        *sessions = None;
+    }
+}
 
 async fn recv_if_some<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
     match rx.as_mut() {
@@ -254,10 +278,14 @@ impl Daemon {
         &self.peers
     }
 
-    pub async fn register_transport_with_server(&self) -> Result<(), DaemonError> {
-        let client = self.server_client.as_ref().ok_or_else(|| {
+    fn require_server_client(&self) -> Result<&ServerClient, DaemonError> {
+        self.server_client.as_ref().ok_or_else(|| {
             DaemonError::Config("credentials are required; pair this device first".to_owned())
-        })?;
+        })
+    }
+
+    pub async fn register_transport_with_server(&self) -> Result<(), DaemonError> {
+        let client = self.require_server_client()?;
 
         let iroh_public_key = self
             .iroh_public_key
@@ -277,17 +305,13 @@ impl Daemon {
     }
 
     pub async fn heartbeat_with_server(&self) -> Result<(), DaemonError> {
-        let client = self.server_client.as_ref().ok_or_else(|| {
-            DaemonError::Config("credentials are required; pair this device first".to_owned())
-        })?;
-
-        client.heartbeat_device(self.device_id()).await
+        self.require_server_client()?
+            .heartbeat_device(self.device_id())
+            .await
     }
 
     pub async fn sync_from_server(&mut self, start_new_features: bool) -> Result<(), DaemonError> {
-        let client = self.server_client.as_ref().ok_or_else(|| {
-            DaemonError::Config("credentials are required; pair this device first".to_owned())
-        })?;
+        let client = self.require_server_client()?;
 
         let response = client.list_devices().await?;
         let self_id = self.device_id();
@@ -320,33 +344,68 @@ impl Daemon {
     }
 
     async fn ensure_shell_service(&mut self) {
-        let shell_enabled = self.local_features.contains(&FeatureId::Shell);
-
-        if shell_enabled && self.shell_sessions.is_none() {
-            if let Some(iroh) = self.iroh.clone() {
-                self.shell_sessions = Some(start_shell_acceptor(iroh).await);
-            }
-        } else if !shell_enabled && self.shell_sessions.is_some() {
-            if let Some(iroh) = &self.iroh {
-                stop_shell_acceptor(iroh).await;
-            }
-            self.shell_sessions = None;
-        }
+        ensure_acceptor_service(
+            &self.iroh,
+            self.local_features.contains(&FeatureId::Shell),
+            &mut self.shell_sessions,
+            |iroh| Box::pin(start_shell_acceptor(iroh)),
+            |iroh| Box::pin(stop_shell_acceptor(iroh)),
+        )
+        .await;
     }
 
     async fn ensure_port_service(&mut self) {
-        let port_enabled = self.local_features.contains(&FeatureId::PortForward);
+        ensure_acceptor_service(
+            &self.iroh,
+            self.local_features.contains(&FeatureId::PortForward),
+            &mut self.port_sessions,
+            |iroh| Box::pin(start_port_acceptor(iroh)),
+            |iroh| Box::pin(stop_port_acceptor(iroh)),
+        )
+        .await;
+    }
 
-        if port_enabled && self.port_sessions.is_none() {
-            if let Some(iroh) = self.iroh.clone() {
-                self.port_sessions = Some(start_port_acceptor(iroh).await);
+    async fn handle_transport_message(&mut self, message: FeatureMessage) {
+        if message.feature == FeatureId::FileSend {
+            if let Some(ack) = parse_ack(&message.payload) {
+                tracing::debug!(
+                    from = %message.from,
+                    transfer_id = %ack.transfer_id,
+                    ok = ack.ok,
+                    "routing inbound file send acknowledgement to coordinator"
+                );
+                self.send_coordinator.complete_ack(ack).await;
+                return;
             }
-        } else if !port_enabled && self.port_sessions.is_some() {
-            if let Some(iroh) = &self.iroh {
-                stop_port_acceptor(iroh).await;
-            }
-            self.port_sessions = None;
+            tracing::debug!(
+                from = %message.from,
+                bytes = message.payload.len(),
+                "dispatching inbound file send message"
+            );
         }
+        if let Err(error) = self.registry.dispatch(message).await {
+            tracing::warn!("failed to dispatch inbound message: {error}");
+        }
+    }
+
+    async fn handle_sync_tick(
+        &mut self,
+        shared_features: &Arc<RwLock<HashSet<FeatureId>>>,
+    ) -> Result<(), DaemonError> {
+        if let Err(error) = self.heartbeat_with_server().await {
+            if matches!(error, DaemonError::DeviceRemoved) {
+                return Err(error);
+            }
+            tracing::warn!("server heartbeat failed: {error}");
+        }
+        if let Err(error) = self.sync_from_server(true).await {
+            tracing::warn!("server sync failed: {error}");
+        } else {
+            *shared_features.write().await = self.local_features.clone();
+            self.ensure_shell_service().await;
+            self.ensure_port_service().await;
+        }
+        Ok(())
     }
 
     pub async fn run(&mut self) -> Result<(), DaemonError> {
@@ -396,28 +455,7 @@ impl Daemon {
             tokio::select! {
                 message = self.transport.recv() => {
                     match message {
-                        Ok(message) => {
-                            if message.feature == FeatureId::FileSend {
-                                if let Some(ack) = parse_ack(&message.payload) {
-                                    tracing::debug!(
-                                        from = %message.from,
-                                        transfer_id = %ack.transfer_id,
-                                        ok = ack.ok,
-                                        "routing inbound file send acknowledgement to coordinator"
-                                    );
-                                    self.send_coordinator.complete_ack(ack).await;
-                                    continue;
-                                }
-                                tracing::debug!(
-                                    from = %message.from,
-                                    bytes = message.payload.len(),
-                                    "dispatching inbound file send message"
-                                );
-                            }
-                            if let Err(error) = self.registry.dispatch(message).await {
-                                tracing::warn!("failed to dispatch inbound message: {error}");
-                            }
-                        }
+                        Ok(message) => self.handle_transport_message(message).await,
                         Err(error) => {
                             tracing::warn!("transport reader stopped: {error}");
                             return Err(DaemonError::Transport(error));
@@ -448,18 +486,8 @@ impl Daemon {
                     }
                 }
                 _ = sync_interval.tick() => {
-                    if let Err(error) = self.heartbeat_with_server().await {
-                        if matches!(error, DaemonError::DeviceRemoved) {
-                            return Err(error);
-                        }
-                        tracing::warn!("server heartbeat failed: {error}");
-                    }
-                    if let Err(error) = self.sync_from_server(true).await {
-                        tracing::warn!("server sync failed: {error}");
-                    } else {
-                        *shared_features.write().await = self.local_features.clone();
-                        self.ensure_shell_service().await;
-                        self.ensure_port_service().await;
+                    if let Err(error) = self.handle_sync_tick(&shared_features).await {
+                        return Err(error);
                     }
                 }
                 result = tokio::signal::ctrl_c() => {
