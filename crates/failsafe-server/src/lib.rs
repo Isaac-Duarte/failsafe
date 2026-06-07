@@ -9,6 +9,7 @@ pub mod middleware;
 pub mod migration;
 pub mod pairing;
 pub mod presence;
+pub mod rate_limit;
 pub mod refresh_token;
 pub mod routes;
 pub mod state;
@@ -57,10 +58,24 @@ pub fn ensure_database_parent(database_url: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+pub fn resolve_encryption_key(jwt_secret: &str) -> String {
+    std::env::var("FAILSAFE_ENCRYPTION_KEY").unwrap_or_else(|_| jwt_secret.to_owned())
+}
+
 pub fn build_app(state: AppState) -> Router {
+    let auth_public = routes::auth::router().route_layer(from_fn_with_state(
+        state.clone(),
+        rate_limit::login_rate_limit_middleware,
+    ));
+
+    let pairing_public = routes::pairing::public_router().route_layer(from_fn_with_state(
+        state.clone(),
+        rate_limit::pairing_rate_limit_middleware,
+    ));
+
     let public = Router::new()
-        .nest("/api/v1/auth", routes::auth::router())
-        .nest("/api/v1/pairing", routes::pairing::public_router())
+        .nest("/api/v1/auth", auth_public)
+        .nest("/api/v1/pairing", pairing_public)
         .route("/health", get(|| async { "ok" }));
 
     let protected = Router::new()
@@ -88,7 +103,9 @@ pub async fn app_from_parts(
     let state = AppState {
         db,
         jwt: JwtService::new(jwt_secret),
-        encryption_key: jwt_secret.to_owned(),
+        encryption_key: resolve_encryption_key(jwt_secret),
+        login_limiter: rate_limit::RateLimiter::new(20, std::time::Duration::from_secs(60)),
+        pairing_limiter: rate_limit::RateLimiter::new(10, std::time::Duration::from_secs(60)),
     };
     Ok(build_app(state))
 }

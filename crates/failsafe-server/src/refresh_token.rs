@@ -6,6 +6,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
     EntityTrait, QueryFilter, Set, TransactionTrait,
 };
+use sea_orm::sea_query::Expr;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -119,6 +120,20 @@ async fn rotate_in_transaction(
 
     let token = jwt.issue(account_id)?;
     Ok(AuthResponse::authenticated(token, new_raw))
+}
+
+pub async fn revoke_all_for_account<C>(conn: &C, account_id: AccountId) -> Result<(), ServerError>
+where
+    C: ConnectionTrait,
+{
+    let now = Utc::now();
+    RefreshToken::update_many()
+        .col_expr(refresh_token::Column::RevokedAt, Expr::value(Some(now)))
+        .filter(refresh_token::Column::AccountId.eq(account_id.0))
+        .filter(refresh_token::Column::RevokedAt.is_null())
+        .exec(conn)
+        .await?;
+    Ok(())
 }
 
 pub async fn logout(state: &AppState, raw: &str) -> Result<(), ServerError> {

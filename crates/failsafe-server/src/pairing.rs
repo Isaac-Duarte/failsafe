@@ -1,7 +1,7 @@
 use rand::Rng;
 
 const CODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const CODE_LEN: usize = 6;
+const CODE_LEN: usize = 8;
 
 pub fn generate_code() -> String {
     let mut rng = rand::thread_rng();
@@ -34,7 +34,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_code_is_six_uppercase_alphanumeric() {
+    fn generate_code_is_eight_uppercase_alphanumeric() {
         let code = generate_code();
         assert_eq!(code.len(), CODE_LEN);
         assert!(
@@ -45,8 +45,8 @@ mod tests {
 
     #[test]
     fn normalize_code_accepts_case_insensitive_input() {
-        assert_eq!(normalize_code("a3k9z1").as_deref(), Some("A3K9Z1"));
-        assert_eq!(normalize_code(" A3K9Z1 ").as_deref(), Some("A3K9Z1"));
+        assert_eq!(normalize_code("a3k9z1x2").as_deref(), Some("A3K9Z1X2"));
+        assert_eq!(normalize_code(" A3K9Z1X2 ").as_deref(), Some("A3K9Z1X2"));
         assert!(normalize_code("abc").is_none());
         assert!(normalize_code("A3K9Z!").is_none());
     }

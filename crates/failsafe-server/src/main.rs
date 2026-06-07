@@ -53,13 +53,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         db,
         jwt: JwtService::new(&jwt_secret),
-        encryption_key: jwt_secret.clone(),
+        encryption_key: failsafe_server::resolve_encryption_key(&jwt_secret),
+        login_limiter: failsafe_server::rate_limit::RateLimiter::new(20, std::time::Duration::from_secs(60)),
+        pairing_limiter: failsafe_server::rate_limit::RateLimiter::new(10, std::time::Duration::from_secs(60)),
     };
     let app = failsafe_server::build_app(state);
 
     info!(%listen, database = %database_url, "failsafe registration server starting");
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

@@ -7,7 +7,7 @@ use failsafe_core::api::{
 };
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entity::{Device, device};
@@ -54,7 +54,8 @@ async fn upsert_device(
         ));
     }
 
-    let model = register_device(&state, account_id, request, RegisterDeviceMode::Upsert).await?;
+    let model =
+        register_device(&state.db, account_id, request, RegisterDeviceMode::Upsert).await?;
     Ok(Json(model_to_info(model)?))
 }
 
@@ -63,12 +64,15 @@ pub(crate) enum RegisterDeviceMode {
     Pairing,
 }
 
-pub(crate) async fn register_device(
-    state: &AppState,
+pub(crate) async fn register_device<C>(
+    conn: &C,
     account_id: AccountId,
     request: DeviceUpsertRequest,
     mode: RegisterDeviceMode,
-) -> ServerResult<device::Model> {
+) -> ServerResult<device::Model>
+where
+    C: ConnectionTrait,
+{
     if request.name.trim().is_empty() || request.iroh_public_key.trim().is_empty() {
         return Err(ServerError::BadRequest(
             "name and iroh_public_key are required".to_owned(),
@@ -76,7 +80,7 @@ pub(crate) async fn register_device(
     }
 
     let device_id = request.device_id.0;
-    let existing = Device::find_by_id(device_id).one(&state.db).await?;
+    let existing = Device::find_by_id(device_id).one(conn).await?;
 
     if let Some(existing) = existing {
         if existing.account_id != account_id.0 {
@@ -96,7 +100,7 @@ pub(crate) async fn register_device(
                     active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
                     active.enabled_features = Set(features_to_json(&request.enabled_features)?);
                     active.last_seen = Set(Some(now));
-                    Ok(active.update(&state.db).await?)
+                    Ok(active.update(conn).await?)
                 }
             };
         }
@@ -106,7 +110,7 @@ pub(crate) async fn register_device(
         let mut active: device::ActiveModel = existing.into();
         active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
         active.last_seen = Set(Some(Utc::now()));
-        return Ok(active.update(&state.db).await?);
+        return Ok(active.update(conn).await?);
     }
 
     let now = Utc::now();
@@ -120,7 +124,7 @@ pub(crate) async fn register_device(
         created_at: Set(now),
         deleted_at: Set(None),
     }
-    .insert(&state.db)
+    .insert(conn)
     .await?)
 }
 

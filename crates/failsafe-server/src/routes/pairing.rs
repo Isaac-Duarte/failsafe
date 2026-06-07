@@ -3,7 +3,10 @@ use axum::routing::post;
 use axum::{Extension, Json, Router};
 use chrono::{Duration, Utc};
 use failsafe_core::api::{AccountId, AuthResponse, PairingCreateResponse, PairingRedeemRequest};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
+};
+use sea_orm::sea_query::Expr;
 use uuid::Uuid;
 
 use crate::entity::{PairingCode, pairing_code};
@@ -65,15 +68,21 @@ async fn redeem_pairing_code(
 ) -> ServerResult<Json<AuthResponse>> {
     let code = normalize_code(&request.code).ok_or_else(|| {
         ServerError::BadRequest(
-            "pairing code must be 6 uppercase alphanumeric characters".to_owned(),
+            "pairing code must be 8 uppercase alphanumeric characters".to_owned(),
         )
     })?;
 
+    let txn = state.db.begin().await?;
+
     let record = PairingCode::find()
         .filter(pairing_code::Column::Code.eq(code))
-        .one(&state.db)
+        .one(&txn)
         .await?
         .ok_or_else(|| ServerError::BadRequest("invalid pairing code".to_owned()))?;
+
+    if record.expires_at < Utc::now() {
+        return Err(ServerError::BadRequest("pairing code expired".to_owned()));
+    }
 
     if record.used_at.is_some() {
         return Err(ServerError::BadRequest(
@@ -81,18 +90,27 @@ async fn redeem_pairing_code(
         ));
     }
 
-    if record.expires_at < Utc::now() {
-        return Err(ServerError::BadRequest("pairing code expired".to_owned()));
-    }
-
     let account_id = AccountId(record.account_id);
-    let mut active: pairing_code::ActiveModel = record.into();
-    active.used_at = Set(Some(Utc::now()));
-    active.update(&state.db).await?;
 
     if let Some(device) = request.device {
-        register_device(&state, account_id, device, RegisterDeviceMode::Pairing).await?;
+        register_device(&txn, account_id, device, RegisterDeviceMode::Pairing).await?;
     }
+
+    let now = Utc::now();
+    let result = pairing_code::Entity::update_many()
+        .col_expr(pairing_code::Column::UsedAt, Expr::value(Some(now)))
+        .filter(pairing_code::Column::Id.eq(record.id))
+        .filter(pairing_code::Column::UsedAt.is_null())
+        .exec(&txn)
+        .await?;
+
+    if result.rows_affected == 0 {
+        return Err(ServerError::BadRequest(
+            "pairing code already used".to_owned(),
+        ));
+    }
+
+    txn.commit().await?;
 
     Ok(Json(issue_auth_response(&state, account_id).await?))
 }

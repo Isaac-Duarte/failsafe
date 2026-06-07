@@ -17,7 +17,10 @@ use failsafe_core::api::{
     AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest,
     TotpDisableRequest, TotpEnableRequest, TotpEnableResponse, TotpSetupResponse,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
+};
+use sea_orm::sea_query::Expr;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -199,9 +202,12 @@ async fn change_password(
     verify_password(&request.current_password, &account.password_hash)?;
 
     let password_hash = hash_password(&request.new_password)?;
+    let txn = state.db.begin().await?;
     let mut active: account::ActiveModel = account.into();
     active.password_hash = Set(password_hash);
-    active.update(&state.db).await?;
+    active.update(&txn).await?;
+    refresh_token::revoke_all_for_account(&txn, account_id).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -333,6 +339,7 @@ async fn totp_disable(
     active.totp_secret = Set(None);
     active.totp_enabled = Set(false);
     active.update(&txn).await?;
+    refresh_token::revoke_all_for_account(&txn, account_id).await?;
 
     txn.commit().await?;
 
@@ -352,23 +359,14 @@ async fn consume_recovery_code(
     code: &str,
 ) -> ServerResult<bool> {
     let hashed = hash_recovery_code(code);
-    let record = RecoveryCode::find()
+    let now = Utc::now();
+    let result = RecoveryCode::update_many()
+        .col_expr(recovery_code::Column::UsedAt, Expr::value(Some(now)))
         .filter(recovery_code::Column::AccountId.eq(account_id.0))
         .filter(recovery_code::Column::CodeHash.eq(hashed))
-        .one(&state.db)
+        .filter(recovery_code::Column::UsedAt.is_null())
+        .exec(&state.db)
         .await?;
 
-    let Some(record) = record else {
-        return Ok(false);
-    };
-
-    if record.used_at.is_some() {
-        return Ok(false);
-    }
-
-    let mut active: recovery_code::ActiveModel = record.into();
-    active.used_at = Set(Some(Utc::now()));
-    active.update(&state.db).await?;
-
-    Ok(true)
+    Ok(result.rows_affected > 0)
 }
