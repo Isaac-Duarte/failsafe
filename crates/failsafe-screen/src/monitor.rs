@@ -104,9 +104,12 @@ pub fn list_displays() -> Result<Vec<ScreenInfo>, ScreenError> {
 
 #[cfg(all(feature = "scap-capture", target_os = "macos"))]
 fn display_dimensions(display: &scap::Display) -> (u32, u32) {
-    let target = scap::Target::Display(display.clone());
-    let (width, height) = scap::get_target_dimensions(&target);
-    (width as u32, height as u32)
+    use core_graphics_helmer_fork::display::CGDisplay;
+
+    let Some(mode) = CGDisplay::new(display.id).display_mode() else {
+        return (0, 0);
+    };
+    (mode.width() as u32, mode.height() as u32)
 }
 
 #[cfg(all(feature = "scap-capture", target_os = "linux"))]

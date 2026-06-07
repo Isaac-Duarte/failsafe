@@ -39,29 +39,35 @@ pub async fn screen(
         )));
     }
 
-    let mut stream = connect_control(&control_socket_path()?)
-        .await
-        .map_err(map_control_connect_error)?;
+    let screens = {
+        let mut stream = connect_control(&control_socket_path()?)
+            .await
+            .map_err(map_control_connect_error)?;
 
-    send_request(
-        &mut stream,
-        &ControlRequest::ListScreens {
-            target: target.device_id,
-        },
-    )
-    .await?;
+        send_request(
+            &mut stream,
+            &ControlRequest::ListScreens {
+                target: target.device_id,
+            },
+        )
+        .await?;
 
-    let screens = match recv_response(&mut stream).await? {
-        ControlResponse::ScreenList { screens } => screens,
-        ControlResponse::Error { message } => return Err(DaemonError::Config(message)),
-        _ => {
-            return Err(DaemonError::Config(
-                "unexpected response while listing screens".to_owned(),
-            ));
+        match recv_response(&mut stream).await? {
+            ControlResponse::ScreenList { screens } => screens,
+            ControlResponse::Error { message } => return Err(DaemonError::Config(message)),
+            _ => {
+                return Err(DaemonError::Config(
+                    "unexpected response while listing screens".to_owned(),
+                ));
+            }
         }
     };
 
     let selected = select_screen_interactive(&screens)?;
+
+    let mut stream = connect_control(&control_socket_path()?)
+        .await
+        .map_err(map_control_connect_error)?;
 
     send_request(
         &mut stream,
