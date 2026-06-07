@@ -1,4 +1,4 @@
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use failsafe_core::control::ControlError;
@@ -77,28 +77,7 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), DaemonError> {
 
 pub async fn relay_terminal_io(stream: &mut ControlStream) -> Result<(), DaemonError> {
     let (mut stream_read, mut stream_write) = tokio::io::split(stream);
-    let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(32);
     let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(32);
-
-    let stdin_tx_for_reader = stdin_tx.clone();
-
-    let stdin_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
-        let mut stdin = std::io::stdin();
-        let mut buf = [0u8; 256];
-        loop {
-            let read = stdin.read(&mut buf)?;
-            if read == 0 {
-                break;
-            }
-            if stdin_tx_for_reader
-                .blocking_send(buf[..read].to_vec())
-                .is_err()
-            {
-                break;
-            }
-        }
-        Ok(())
-    });
 
     let stdout_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
         let mut stdout = std::io::stdout();
@@ -109,46 +88,42 @@ pub async fn relay_terminal_io(stream: &mut ControlStream) -> Result<(), DaemonE
         Ok(())
     });
 
-    let socket_to_stdout = async {
-        let mut buf = [0u8; 4096];
-        loop {
-            let read = stream_read.read(&mut buf).await.map_err(DaemonError::Io)?;
-            if read == 0 {
-                break;
+    let mut stdin = tokio::io::stdin();
+    let mut socket_buf = [0u8; 4096];
+    let mut stdin_buf = [0u8; 256];
+    let mut socket_open = true;
+
+    while socket_open {
+        tokio::select! {
+            read = stream_read.read(&mut socket_buf) => {
+                let read = read.map_err(DaemonError::Io)?;
+                if read == 0 {
+                    socket_open = false;
+                } else if stdout_tx.send(socket_buf[..read].to_vec()).await.is_err() {
+                    socket_open = false;
+                }
             }
-            if stdout_tx.send(buf[..read].to_vec()).await.is_err() {
-                break;
+            read = stdin.read(&mut stdin_buf) => {
+                let read = read.map_err(DaemonError::Io)?;
+                if read == 0 {
+                    socket_open = false;
+                } else {
+                    stream_write
+                        .write_all(&stdin_buf[..read])
+                        .await
+                        .map_err(DaemonError::Io)?;
+                    stream_write
+                        .flush()
+                        .await
+                        .map_err(DaemonError::Io)?;
+                }
             }
         }
-        drop(stdout_tx);
-        Ok::<(), DaemonError>(())
-    };
+    }
 
-    let stdin_to_socket = async {
-        while let Some(data) = stdin_rx.recv().await {
-            stream_write
-                .write_all(&data)
-                .await
-                .map_err(DaemonError::Io)?;
-            stream_write.flush().await.map_err(DaemonError::Io)?;
-        }
-        stream_write.shutdown().await.map_err(DaemonError::Io)?;
-        Ok::<(), DaemonError>(())
-    };
+    drop(stdout_tx);
+    let _ = stream_write.shutdown().await;
 
-    let relay_result = tokio::select! {
-        result = socket_to_stdout => {
-            drop(stdin_tx);
-            result
-        }
-        result = stdin_to_socket => result,
-    };
-
-    relay_result?;
-
-    stdin_task
-        .await
-        .map_err(|error| DaemonError::Io(std::io::Error::other(error)))??;
     stdout_task
         .await
         .map_err(|error| DaemonError::Io(std::io::Error::other(error)))??;
