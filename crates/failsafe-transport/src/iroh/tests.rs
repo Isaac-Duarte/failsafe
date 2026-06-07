@@ -24,6 +24,7 @@ async fn wait_for_connection(transport: &IrohTransport, peer: DeviceId) -> Resul
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn two_transports_exchange_messages() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -91,6 +92,7 @@ async fn two_transports_exchange_messages() {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn update_peers_connects_to_new_peer() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -135,6 +137,7 @@ async fn update_peers_connects_to_new_peer() {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn blob_transfer_roundtrips_bytes() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -191,6 +194,7 @@ async fn blob_transfer_roundtrips_bytes() {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn blob_transfer_roundtrips_file_collection() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -251,6 +255,7 @@ async fn blob_transfer_roundtrips_file_collection() {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn shell_stream_opens_between_peers() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();
@@ -333,6 +338,7 @@ async fn shell_stream_opens_between_peers() {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn concurrent_shell_streams_to_same_peer() {
     let temp = TempDir::new().expect("tempdir");
     let device_a = DeviceId::new();

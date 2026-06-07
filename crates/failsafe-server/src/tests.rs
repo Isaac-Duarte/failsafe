@@ -41,6 +41,8 @@ async fn test_app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
         db: db.clone(),
         jwt: JwtService::new("integration-test-secret"),
         encryption_key: "integration-test-secret".to_owned(),
+        login_limiter: crate::rate_limit::RateLimiter::new(10_000, std::time::Duration::from_secs(60)),
+        pairing_limiter: crate::rate_limit::RateLimiter::new(10_000, std::time::Duration::from_secs(60)),
     };
     (build_app(state), db)
 }
@@ -261,7 +263,7 @@ async fn pairing_code_can_be_redeemed_once() {
 
     assert_eq!(create_response.status(), axum::http::StatusCode::OK);
     let PairingCreateResponse { code, expires_at } = body_json(create_response.into_body()).await;
-    assert_eq!(code.len(), 6);
+    assert_eq!(code.len(), 8);
     assert!(
         code.chars()
             .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
@@ -1585,4 +1587,221 @@ async fn change_password_updates_credentials() {
         .await
         .unwrap();
     assert_eq!(new_login.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn register_rejects_duplicate_email() {
+    let app = test_app().await;
+    let body = serde_json::to_string(&AuthRegisterRequest {
+        email: "dup@example.com".to_owned(),
+        password: "hunter22".to_owned(),
+    })
+    .unwrap();
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if response.status() == axum::http::StatusCode::CONFLICT {
+            return;
+        }
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+    panic!("expected duplicate registration to return conflict");
+}
+
+#[tokio::test]
+async fn register_rejects_short_password() {
+    let app = test_app().await;
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: "short@example.com".to_owned(),
+                        password: "short".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn health_endpoint_returns_ok() {
+    let app = test_app().await;
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], b"ok");
+}
+
+#[tokio::test]
+async fn malformed_authorization_header_is_rejected() {
+    let app = test_app().await;
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/devices")
+                .header("authorization", "not-a-bearer-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn expired_pairing_code_is_rejected() {
+    let (app, db) = test_app_with_db().await;
+    let register_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: "expired-pair@example.com".to_owned(),
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    let token = auth_token(&auth);
+
+    let code = create_pairing_code(&app, token).await;
+
+    use crate::entity::{PairingCode, pairing_code};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+
+    let record = PairingCode::find()
+        .filter(pairing_code::Column::Code.eq(code.clone()))
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("pairing code row");
+    let mut active: pairing_code::ActiveModel = record.into();
+    active.expires_at = Set(Utc::now() - Duration::minutes(1));
+    active.update(&db).await.unwrap();
+
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/pairing/redeem")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&PairingRedeemRequest {
+                        code,
+                        device: None,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn password_change_revokes_existing_refresh_tokens() {
+    let app = test_app().await;
+    let register_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRegisterRequest {
+                        email: "revoke@example.com".to_owned(),
+                        password: "hunter22".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let auth: AuthResponse = body_json(register_response.into_body()).await;
+    let token = auth_token(&auth);
+    let refresh = refresh_token_value(&auth).to_owned();
+
+    let change_response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/password")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&ChangePasswordRequest {
+                        current_password: "hunter22".to_owned(),
+                        new_password: "newpass99".to_owned(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(change_response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    let refresh_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&AuthRefreshRequest {
+                        refresh_token: refresh,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(refresh_response.status(), axum::http::StatusCode::UNAUTHORIZED);
 }

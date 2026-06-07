@@ -30,6 +30,7 @@ async fn wait_for_connection(transport: &IrohTransport, peer: DeviceId) {
 }
 
 #[tokio::test]
+#[ignore = "requires live Iroh P2P networking"]
 async fn iroh_send_receive_ack_roundtrip() {
     let temp = TempDir::new().expect("tempdir");
     let device_sender = DeviceId::new();
