@@ -59,7 +59,7 @@ async fn pair_join(
     }
 
     let normalized = normalize_pairing_code(code).ok_or_else(|| {
-        DaemonError::Config("pairing code must be 6 uppercase alphanumeric characters".to_owned())
+        DaemonError::Config("pairing code must be 8 uppercase alphanumeric characters".to_owned())
     })?;
 
     let bundle = create_transport_bundle(&config, PeerAddressBook::default()).await?;
@@ -109,7 +109,7 @@ async fn pair_join(
 
 pub(crate) fn normalize_pairing_code(code: &str) -> Option<String> {
     let normalized = code.trim().to_uppercase();
-    if normalized.len() != 6 {
+    if normalized.len() != 8 {
         return None;
     }
 
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn normalize_pairing_code_accepts_case_insensitive_input() {
-        assert_eq!(normalize_pairing_code("a3k9z1").as_deref(), Some("A3K9Z1"));
+        assert_eq!(normalize_pairing_code("a3k9z1x2").as_deref(), Some("A3K9Z1X2"));
         assert!(normalize_pairing_code("too-short").is_none());
     }
 }

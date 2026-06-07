@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use failsafe_core::api::{
-    AuthLoginRequest, AuthRefreshRequest, AuthRegisterRequest, AuthResponse, DeviceInfo,
-    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
-    PairingRedeemRequest,
+    AuthLoginRequest, AuthMfaLoginRequest, AuthRefreshRequest, AuthRegisterRequest, AuthResponse,
+    DeviceInfo, DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest,
+    PairingCreateResponse, PairingRedeemRequest,
 };
 use failsafe_core::device::DeviceId;
 use reqwest::RequestBuilder;
@@ -71,6 +71,26 @@ impl ServerClient {
             .send()
             .await
             .map_err(|error| DaemonError::Config(format!("login request failed: {error}")))?;
+
+        parse_json_response(response).await
+    }
+
+    pub async fn login_mfa(
+        base_url: &str,
+        mfa_token: &str,
+        code: &str,
+    ) -> Result<AuthResponse, DaemonError> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/v1/auth/login/mfa", base_url.trim_end_matches('/'));
+        let response = client
+            .post(url)
+            .json(&AuthMfaLoginRequest {
+                mfa_token: mfa_token.to_owned(),
+                code: code.to_owned(),
+            })
+            .send()
+            .await
+            .map_err(|error| DaemonError::Config(format!("MFA login request failed: {error}")))?;
 
         parse_json_response(response).await
     }

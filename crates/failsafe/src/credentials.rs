@@ -34,7 +34,8 @@ impl Credentials {
         let contents = toml::to_string_pretty(self).map_err(|error| {
             DaemonError::Config(format!("failed to serialize credentials: {error}"))
         })?;
-        std::fs::write(path, contents).map_err(DaemonError::Io)
+        std::fs::write(path, contents).map_err(DaemonError::Io)?;
+        restrict_file_permissions(path).map_err(DaemonError::Io)
     }
 
     pub fn load_or_error() -> Result<Self, DaemonError> {
@@ -51,4 +52,17 @@ impl Credentials {
 
         Self::load(&path)
     }
+}
+
+fn restrict_file_permissions(path: &Path) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
 }

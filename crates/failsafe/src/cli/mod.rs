@@ -21,12 +21,13 @@ pub async fn execute() -> Result<(), DaemonError> {
             config,
             email,
             password,
-        } => commands::authenticate(config, server_url, email, password, true).await,
+        } => commands::authenticate(config, server_url, email, password, None, true).await,
         Command::Login {
             config,
             email,
             password,
-        } => commands::authenticate(config, server_url, email, password, false).await,
+            totp,
+        } => commands::authenticate(config, server_url, email, password, totp, false).await,
         Command::Pair { config, code, name } => {
             commands::pair(config, server_url, code, name).await
         }

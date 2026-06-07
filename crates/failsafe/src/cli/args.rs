@@ -28,9 +28,9 @@ pub enum Command {
         /// Account email address.
         #[arg(long)]
         email: String,
-        /// Account password.
+        /// Account password (prompted when omitted).
         #[arg(long)]
-        password: String,
+        password: Option<String>,
     },
     /// Log in to an existing account on the registration server.
     Login {
@@ -40,9 +40,12 @@ pub enum Command {
         /// Account email address.
         #[arg(long)]
         email: String,
-        /// Account password.
+        /// Account password (prompted when omitted).
         #[arg(long)]
-        password: String,
+        password: Option<String>,
+        /// TOTP or recovery code when two-factor authentication is enabled.
+        #[arg(long)]
+        totp: Option<String>,
     },
     /// Pair this device with an account.
     Pair {
