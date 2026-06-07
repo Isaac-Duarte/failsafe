@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
-import { ChevronDown, LogOut, Monitor, User } from "lucide-react"
+import { ChevronDown, Github, LogOut, Monitor, User } from "lucide-react"
 
 import {
   AppShell,
@@ -15,6 +15,8 @@ import {
 import { useAccount } from "@/hooks/useAccount"
 import { isAuthenticated } from "@/lib/auth"
 import { logout } from "@/lib/api"
+
+const GITHUB_REPO_URL = "https://github.com/Isaac-Duarte/failsafe"
 
 export function AppLayout() {
   const location = useLocation()
@@ -38,54 +40,71 @@ export function AppLayout() {
       subtitle={showSubtitle ? "Sync across your devices" : undefined}
       centered={isAuthPage}
       actions={
-        !authenticated && isLandingPage ? (
-          <>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/login">Log in</Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link to="/register">Get started</Link>
-            </Button>
-          </>
-        ) : authenticated ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                {accountLoading ? (
-                  <Skeleton className="h-4 w-24" />
-                ) : (
-                  <span className="max-w-[10rem] truncate">
-                    {email ?? "Account"}
-                  </span>
-                )}
-                <ChevronDown className="size-3.5 opacity-60" />
+        <>
+          {!authenticated && isLandingPage ? (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/login">Log in</Link>
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {email ? (
-                <>
-                  <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
-                    {email}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                </>
-              ) : null}
-              <DropdownMenuItem onClick={() => navigate("/devices")}>
-                <Monitor />
-                Devices
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/account")}>
-                <User />
-                Account
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={handleLogout}>
-                <LogOut />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null
+              <Button asChild size="sm">
+                <Link to="/register">Get started</Link>
+              </Button>
+            </>
+          ) : authenticated ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  {accountLoading ? (
+                    <Skeleton className="h-4 w-24" />
+                  ) : (
+                    <span className="max-w-[10rem] truncate">
+                      {email ?? "Account"}
+                    </span>
+                  )}
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {email ? (
+                  <>
+                    <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
+                      {email}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+                <DropdownMenuItem onClick={() => navigate("/devices")}>
+                  <Monitor />
+                  Devices
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/account")}>
+                  <User />
+                  Account
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={handleLogout}>
+                  <LogOut />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            aria-label="View on GitHub"
+            title="View on GitHub"
+          >
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Github />
+            </a>
+          </Button>
+        </>
       }
     >
       <Outlet />
