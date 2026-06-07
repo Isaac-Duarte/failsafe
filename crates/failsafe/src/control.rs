@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use failsafe_core::control::ControlError;
@@ -8,7 +8,6 @@ pub use failsafe_core::control::{
     read_control_token, read_event, send_phase_label, write_event,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
 
 use crate::error::DaemonError;
 
@@ -77,56 +76,41 @@ pub async fn remove_stale_socket(path: &Path) -> Result<(), DaemonError> {
 
 pub async fn relay_terminal_io(stream: &mut ControlStream) -> Result<(), DaemonError> {
     let (mut stream_read, mut stream_write) = tokio::io::split(stream);
-    let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(32);
-
-    let stdout_task = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
-        let mut stdout = std::io::stdout();
-        while let Some(data) = stdout_rx.blocking_recv() {
-            stdout.write_all(&data)?;
-            stdout.flush()?;
-        }
-        Ok(())
-    });
-
     let mut stdin = tokio::io::stdin();
+    let mut stdout = tokio::io::stdout();
     let mut socket_buf = [0u8; 4096];
     let mut stdin_buf = [0u8; 256];
-    let mut socket_open = true;
 
-    while socket_open {
+    loop {
         tokio::select! {
             read = stream_read.read(&mut socket_buf) => {
                 let read = read.map_err(DaemonError::Io)?;
                 if read == 0 {
-                    socket_open = false;
-                } else if stdout_tx.send(socket_buf[..read].to_vec()).await.is_err() {
-                    socket_open = false;
+                    break;
                 }
+                stdout
+                    .write_all(&socket_buf[..read])
+                    .await
+                    .map_err(DaemonError::Io)?;
+                stdout.flush().await.map_err(DaemonError::Io)?;
             }
             read = stdin.read(&mut stdin_buf) => {
                 let read = read.map_err(DaemonError::Io)?;
                 if read == 0 {
-                    socket_open = false;
-                } else {
-                    stream_write
-                        .write_all(&stdin_buf[..read])
-                        .await
-                        .map_err(DaemonError::Io)?;
-                    stream_write
-                        .flush()
-                        .await
-                        .map_err(DaemonError::Io)?;
+                    break;
                 }
+                stream_write
+                    .write_all(&stdin_buf[..read])
+                    .await
+                    .map_err(DaemonError::Io)?;
+                stream_write
+                    .flush()
+                    .await
+                    .map_err(DaemonError::Io)?;
             }
         }
     }
 
-    drop(stdout_tx);
     let _ = stream_write.shutdown().await;
-
-    stdout_task
-        .await
-        .map_err(|error| DaemonError::Io(std::io::Error::other(error)))??;
-
     Ok(())
 }

@@ -43,9 +43,12 @@ impl SendProgressReporter {
                     _ = flush_cancel.cancelled() => break,
                     _ = flush_notify.notified() => {}
                 }
-                tokio::select! {
-                    _ = flush_cancel.cancelled() => break,
-                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                if flush_cancel.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if flush_cancel.is_cancelled() {
+                    break;
                 }
 
                 let snapshot: Option<ProgressSnapshot> = flush_pending.lock().unwrap().take();

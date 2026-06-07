@@ -35,6 +35,8 @@ pub async fn relay_channels_to_pty(
         Ok(())
     });
 
+    // Exit when the PTY closes even if the input channel stays open; the inner
+    // to_pty channel bridges async input to the blocking PTY writer.
     let mut stream_open = true;
     loop {
         tokio::select! {

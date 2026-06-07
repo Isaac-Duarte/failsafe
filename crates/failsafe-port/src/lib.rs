@@ -5,7 +5,7 @@ use failsafe_core::control::PortProtocol;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use failsafe_core::peer::PeerDirectory;
-use failsafe_transport::iroh::{IrohTransport, PortSession, relay_port_streams};
+use failsafe_transport::iroh::{IrohTransport, PortSession, relay_shell_streams};
 use failsafe_transport::transport::Transport;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -54,7 +54,7 @@ pub async fn handle_incoming_port(session: PortSession) {
 
     let (read_half, write_half) = tcp.into_split();
 
-    if let Err(error) = relay_port_streams(session.send, session.recv, read_half, write_half).await
+    if let Err(error) = relay_shell_streams(session.send, session.recv, read_half, write_half).await
     {
         warn!(%device, %remote_port, "port forward relay exited with error: {error}");
     }
@@ -128,7 +128,7 @@ pub async fn run_outgoing_port_forward(
                             {
                                 Ok(session) => {
                                     let (read_half, write_half) = tcp.into_split();
-                                    if let Err(error) = relay_port_streams(
+                                    if let Err(error) = relay_shell_streams(
                                         session.send,
                                         session.recv,
                                         read_half,

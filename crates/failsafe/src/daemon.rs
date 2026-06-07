@@ -29,6 +29,13 @@ use crate::shell_service::{handle_incoming_shell, start_shell_acceptor, stop_she
 use crate::sync::{apply_self_from_server, apply_server_devices};
 use failsafe_port::{handle_incoming_port, start_port_acceptor, stop_port_acceptor};
 
+async fn recv_if_some<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
+    match rx.as_mut() {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
 pub struct TransportBundle {
     pub transport: Arc<dyn Transport>,
     pub peer_updater: Arc<dyn PeerAddressUpdater>,
@@ -385,70 +392,44 @@ impl Daemon {
         let mut sync_interval = tokio::time::interval(Duration::from_secs(30));
         sync_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        let (inbound_tx, mut inbound_rx) =
-            mpsc::channel::<failsafe_core::message::FeatureMessage>(256);
-        let transport_reader = self.transport.clone();
-        tokio::spawn(async move {
-            loop {
-                match transport_reader.recv().await {
-                    Ok(message) => {
-                        if inbound_tx.send(message).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::warn!("transport reader stopped: {error}");
-                        break;
-                    }
-                }
-            }
-        });
-
         loop {
             tokio::select! {
-                message = inbound_rx.recv() => {
-                    let Some(message) = message else {
-                        return Err(DaemonError::Config(
-                            "inbound message channel closed".to_owned(),
-                        ));
-                    };
-                    if message.feature == FeatureId::FileSend {
-                        if let Some(ack) = parse_ack(&message.payload) {
-                            tracing::debug!(
-                                from = %message.from,
-                                transfer_id = %ack.transfer_id,
-                                ok = ack.ok,
-                                "routing inbound file send acknowledgement to coordinator"
-                            );
-                            self.send_coordinator.complete_ack(ack).await;
-                            continue;
+                message = self.transport.recv() => {
+                    match message {
+                        Ok(message) => {
+                            if message.feature == FeatureId::FileSend {
+                                if let Some(ack) = parse_ack(&message.payload) {
+                                    tracing::debug!(
+                                        from = %message.from,
+                                        transfer_id = %ack.transfer_id,
+                                        ok = ack.ok,
+                                        "routing inbound file send acknowledgement to coordinator"
+                                    );
+                                    self.send_coordinator.complete_ack(ack).await;
+                                    continue;
+                                }
+                                tracing::debug!(
+                                    from = %message.from,
+                                    bytes = message.payload.len(),
+                                    "dispatching inbound file send message"
+                                );
+                            }
+                            if let Err(error) = self.registry.dispatch(message).await {
+                                tracing::warn!("failed to dispatch inbound message: {error}");
+                            }
                         }
-                        tracing::debug!(
-                            from = %message.from,
-                            bytes = message.payload.len(),
-                            "dispatching inbound file send message"
-                        );
-                    }
-                    if let Err(error) = self.registry.dispatch(message).await {
-                        tracing::warn!("failed to dispatch inbound message: {error}");
+                        Err(error) => {
+                            tracing::warn!("transport reader stopped: {error}");
+                            return Err(DaemonError::Transport(error));
+                        }
                     }
                 }
-                session = async {
-                    match self.shell_sessions.as_mut() {
-                        Some(rx) => rx.recv().await,
-                        None => std::future::pending().await,
-                    }
-                } => {
+                session = recv_if_some(&mut self.shell_sessions) => {
                     if let Some(session) = session {
                         tokio::spawn(handle_incoming_shell(session));
                     }
                 }
-                port_session = async {
-                    match self.port_sessions.as_mut() {
-                        Some(rx) => rx.recv().await,
-                        None => std::future::pending().await,
-                    }
-                } => {
+                port_session = recv_if_some(&mut self.port_sessions) => {
                     if let Some(session) = port_session {
                         tokio::spawn(handle_incoming_port(session));
                     }

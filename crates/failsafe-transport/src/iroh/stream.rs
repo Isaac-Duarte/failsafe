@@ -247,19 +247,6 @@ where
     Ok(())
 }
 
-pub async fn relay_port_streams<R, W>(
-    send: SendStream,
-    recv: RecvStream,
-    input: R,
-    output: W,
-) -> Result<(), TransportError>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    relay_shell_streams(send, recv, input, output).await
-}
-
 pub async fn relay_shell_to_channels(
     mut send: SendStream,
     mut recv: RecvStream,
