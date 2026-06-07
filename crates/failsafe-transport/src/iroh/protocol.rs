@@ -19,6 +19,7 @@ pub struct FailsafeProtocol {
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
     local_endpoint_id: PublicKey,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
 }
@@ -29,6 +30,7 @@ impl FailsafeProtocol {
         inbox: mpsc::Sender<FeatureMessage>,
         address_state: SharedAddressState,
         local_endpoint_id: PublicKey,
+        local_device_id: DeviceId,
         shell_acceptor: SharedShellAcceptor,
         port_acceptor: SharedPortAcceptor,
     ) -> Self {
@@ -37,6 +39,7 @@ impl FailsafeProtocol {
             inbox,
             address_state,
             local_endpoint_id,
+            local_device_id,
             shell_acceptor,
             port_acceptor,
         }
@@ -68,11 +71,13 @@ impl ProtocolHandler for FailsafeProtocol {
                     let inbox = self.inbox.clone();
                     let shell_acceptor = self.shell_acceptor.clone();
                     let port_acceptor = self.port_acceptor.clone();
+                    let local_device_id = self.local_device_id;
                     tokio::spawn(async move {
                         handle_incoming_bi_stream(
                             send,
                             recv,
                             device,
+                            local_device_id,
                             inbox,
                             port_acceptor,
                             shell_acceptor,

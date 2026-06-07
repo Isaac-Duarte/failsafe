@@ -60,6 +60,7 @@ pub fn spawn_dial_manager(
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) -> ManagerCommand {
@@ -70,6 +71,7 @@ pub fn spawn_dial_manager(
             pool,
             inbox,
             address_state,
+            local_device_id,
             shell_acceptor,
             port_acceptor,
             shutdown_rx,
@@ -91,6 +93,7 @@ async fn run_dial_manager(
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
     address_state: SharedAddressState,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
     mut shutdown: watch::Receiver<bool>,
@@ -111,6 +114,7 @@ async fn run_dial_manager(
                     pool.clone(),
                     &address_state,
                     inbox.clone(),
+                    local_device_id,
                     shell_acceptor.clone(),
                     port_acceptor.clone(),
                 ).await;
@@ -126,6 +130,7 @@ async fn dial_peers(
     pool: Arc<ConnectionPool>,
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) {
@@ -167,6 +172,7 @@ async fn dial_peers(
                     pool.clone(),
                     address_state,
                     inbox.clone(),
+                    local_device_id,
                     shell_acceptor.clone(),
                     port_acceptor.clone(),
                 )
@@ -196,6 +202,7 @@ async fn register_dialed_connection(
     pool: Arc<ConnectionPool>,
     address_state: &SharedAddressState,
     inbox: mpsc::Sender<FeatureMessage>,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) -> Result<(), TransportError> {
@@ -206,6 +213,7 @@ async fn register_dialed_connection(
         device,
         pool,
         inbox,
+        local_device_id,
         shell_acceptor,
         port_acceptor,
     );
@@ -217,6 +225,7 @@ fn spawn_stream_handler(
     device: DeviceId,
     pool: Arc<ConnectionPool>,
     inbox: mpsc::Sender<FeatureMessage>,
+    local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
 ) {
@@ -232,6 +241,7 @@ fn spawn_stream_handler(
                             send,
                             recv,
                             device,
+                            local_device_id,
                             inbox,
                             port_acceptor,
                             shell_acceptor,

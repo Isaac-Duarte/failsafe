@@ -429,7 +429,9 @@ impl Daemon {
                             "dispatching inbound file send message"
                         );
                     }
-                    self.registry.dispatch(message).await?;
+                    if let Err(error) = self.registry.dispatch(message).await {
+                        tracing::warn!("failed to dispatch inbound message: {error}");
+                    }
                 }
                 session = async {
                     match self.shell_sessions.as_mut() {

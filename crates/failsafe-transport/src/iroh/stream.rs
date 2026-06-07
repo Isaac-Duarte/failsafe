@@ -63,6 +63,7 @@ pub async fn handle_incoming_bi_stream(
     send: SendStream,
     mut recv: RecvStream,
     device: DeviceId,
+    local_device_id: DeviceId,
     inbox: mpsc::Sender<FeatureMessage>,
     port_acceptor: SharedPortAcceptor,
     shell_acceptor: SharedShellAcceptor,
@@ -152,7 +153,18 @@ pub async fn handle_incoming_bi_stream(
     frame.extend_from_slice(&payload);
 
     match codec::decode(&frame) {
-        Ok(message) => {
+        Ok(mut message) => {
+            if message.to != local_device_id {
+                warn!(
+                    %device,
+                    claimed_from = %message.from,
+                    claimed_to = %message.to,
+                    %local_device_id,
+                    "rejected inbound frame with mismatched recipient"
+                );
+                return;
+            }
+            message.from = device;
             if inbox.send(message).await.is_err() {
                 debug!("inbox closed while delivering message");
             }

@@ -79,6 +79,7 @@ impl IrohTransport {
             inbox_tx.clone(),
             address_state.clone(),
             local_endpoint_id,
+            config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
         );
@@ -93,6 +94,7 @@ impl IrohTransport {
             pool.clone(),
             inbox_tx,
             address_state.clone(),
+            config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
         );
