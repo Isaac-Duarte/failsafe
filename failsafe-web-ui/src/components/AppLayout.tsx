@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
-import { ChevronDown, Github, LogOut, Monitor, User } from "lucide-react"
+import { ChevronDown, ExternalLink, LogOut, Monitor, User } from "lucide-react"
 
 import {
   AppShell,
@@ -101,7 +101,7 @@ export function AppLayout() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Github />
+              <ExternalLink />
             </a>
           </Button>
         </>
