@@ -147,47 +147,74 @@ async fn dial_peers(
     };
 
     for (device, address) in peers_to_dial {
-        if pool.get(device).await.is_some() {
-            continue;
-        }
-
-        let Ok(endpoint_addr) = crate::iroh::transport::parse_endpoint_addr(&address) else {
-            warn!(%device, %address, "skipping peer with invalid iroh address");
-            continue;
-        };
-
-        if endpoint_addr.id == endpoint.id() {
-            warn!(
-                %device,
-                %address,
-                "skipping peer with same iroh endpoint as this device; remove the stale device from the server or re-pair it"
-            );
-            continue;
-        }
-
-        match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
-            Ok(connection) => {
-                if let Err(error) = register_dialed_connection(
-                    &connection,
-                    pool.clone(),
-                    address_state,
-                    inbox.clone(),
-                    local_device_id,
-                    shell_acceptor.clone(),
-                    port_acceptor.clone(),
-                )
-                .await
-                {
-                    warn!(%device, "failed to register outbound connection: {error}");
-                    continue;
-                }
-                debug!(%device, "connected to peer");
-            }
-            Err(error) => {
-                debug!(%device, "failed to dial peer: {error}");
-            }
-        }
+        try_dial_one(
+            device,
+            &address,
+            endpoint.as_ref(),
+            pool.clone(),
+            address_state,
+            inbox.clone(),
+            local_device_id,
+            shell_acceptor.clone(),
+            port_acceptor.clone(),
+        )
+        .await;
     }
+}
+
+async fn try_dial_one(
+    device: DeviceId,
+    address: &str,
+    endpoint: &Endpoint,
+    pool: Arc<ConnectionPool>,
+    address_state: &SharedAddressState,
+    inbox: mpsc::Sender<FeatureMessage>,
+    local_device_id: DeviceId,
+    shell_acceptor: SharedShellAcceptor,
+    port_acceptor: SharedPortAcceptor,
+) {
+    if pool.get(device).await.is_some() {
+        return;
+    }
+
+    let Ok(endpoint_addr) = crate::iroh::transport::parse_endpoint_addr(address) else {
+        warn!(%device, %address, "skipping peer with invalid iroh address");
+        return;
+    };
+
+    if endpoint_addr.id == endpoint.id() {
+        warn!(
+            %device,
+            %address,
+            "skipping peer with same iroh endpoint as this device; remove the stale device from the server or re-pair it"
+        );
+        return;
+    }
+
+    let connection = match endpoint.connect(endpoint_addr, FAILSAFE_ALPN).await {
+        Ok(connection) => connection,
+        Err(error) => {
+            debug!(%device, "failed to dial peer: {error}");
+            return;
+        }
+    };
+
+    if let Err(error) = register_dialed_connection(
+        &connection,
+        pool,
+        address_state,
+        inbox,
+        local_device_id,
+        shell_acceptor,
+        port_acceptor,
+    )
+    .await
+    {
+        warn!(%device, "failed to register outbound connection: {error}");
+        return;
+    }
+
+    debug!(%device, "connected to peer");
 }
 
 pub(crate) fn register_outbound_connection(

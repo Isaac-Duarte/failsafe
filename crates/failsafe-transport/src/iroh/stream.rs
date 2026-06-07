@@ -44,17 +44,13 @@ pub async fn read_exact(recv: &mut RecvStream, buf: &mut [u8]) -> Result<(), Tra
             .read(&mut buf[offset..])
             .await
             .map_err(|error| TransportError::Codec(error.to_string()))?;
-        let Some(read) = read else {
-            return Err(TransportError::Codec(
-                "stream closed before read complete".to_owned(),
-            ));
-        };
-        if read == 0 {
+        let n = read.unwrap_or(0);
+        if n == 0 {
             return Err(TransportError::Codec(
                 "stream closed before read complete".to_owned(),
             ));
         }
-        offset += read;
+        offset += n;
     }
     Ok(())
 }
@@ -75,68 +71,114 @@ pub async fn handle_incoming_bi_stream(
     }
 
     if port::is_port_handshake(&header) {
-        let mut tail = [0u8; 3];
-        if let Err(error) = read_exact(&mut recv, &mut tail).await {
-            warn!(%device, "port stream missing init tail: {error}");
-            return;
-        }
-        let mut init = [0u8; port::PORT_INIT_LEN];
-        init[..4].copy_from_slice(&header);
-        init[4..].copy_from_slice(&tail);
-        let Some((remote_port, protocol)) = port::parse_port_init(&init) else {
-            warn!(%device, "port stream has invalid init");
-            return;
-        };
-
-        let acceptor = port_acceptor.lock().await.clone();
-        let Some(acceptor) = acceptor else {
-            warn!(%device, "rejected port stream: port acceptor not registered");
-            return;
-        };
-
-        let session = PortSession {
-            from: device,
-            remote_port,
-            protocol,
-            send,
-            recv,
-        };
-
-        if acceptor.send(session).await.is_err() {
-            warn!(%device, "port acceptor closed");
-        }
+        try_accept_port_stream(header, recv, send, port_acceptor, device).await;
         return;
     }
 
     if shell::is_shell_handshake(&header) {
-        let mut size_buf = [0u8; 4];
-        if let Err(error) = read_exact(&mut recv, &mut size_buf).await {
-            warn!(%device, "shell stream missing terminal size: {error}");
-            return;
-        }
-        let rows = u16::from_be_bytes(size_buf[..2].try_into().expect("rows"));
-        let cols = u16::from_be_bytes(size_buf[2..].try_into().expect("cols"));
-
-        let acceptor = shell_acceptor.lock().await.clone();
-        let Some(acceptor) = acceptor else {
-            warn!(%device, "rejected shell stream: shell acceptor not registered");
-            return;
-        };
-
-        let session = ShellSession {
-            from: device,
-            rows,
-            cols,
-            send,
-            recv,
-        };
-
-        if acceptor.send(session).await.is_err() {
-            warn!(%device, "shell acceptor closed");
-        }
+        try_accept_shell_stream(header, recv, send, shell_acceptor, device).await;
         return;
     }
 
+    handle_feature_frame(header, recv, send, device, local_device_id, inbox).await;
+}
+
+async fn try_accept_port_stream(
+    header: [u8; 4],
+    mut recv: RecvStream,
+    send: SendStream,
+    port_acceptor: SharedPortAcceptor,
+    device: DeviceId,
+) {
+    let mut tail = [0u8; 3];
+    if let Err(error) = read_exact(&mut recv, &mut tail).await {
+        warn!(%device, "port stream missing init tail: {error}");
+        return;
+    }
+    let mut init = [0u8; port::PORT_INIT_LEN];
+    init[..4].copy_from_slice(&header);
+    init[4..].copy_from_slice(&tail);
+    let Some((remote_port, protocol)) = port::parse_port_init(&init) else {
+        warn!(%device, "port stream has invalid init");
+        return;
+    };
+
+    let session = PortSession {
+        from: device,
+        remote_port,
+        protocol,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        port_acceptor,
+        device,
+        session,
+        "rejected port stream: port acceptor not registered",
+        "port acceptor closed",
+    )
+    .await;
+}
+
+async fn try_accept_shell_stream(
+    header: [u8; 4],
+    mut recv: RecvStream,
+    send: SendStream,
+    shell_acceptor: SharedShellAcceptor,
+    device: DeviceId,
+) {
+    let _ = header;
+    let mut size_buf = [0u8; 4];
+    if let Err(error) = read_exact(&mut recv, &mut size_buf).await {
+        warn!(%device, "shell stream missing terminal size: {error}");
+        return;
+    }
+    let rows = u16::from_be_bytes(size_buf[..2].try_into().expect("rows"));
+    let cols = u16::from_be_bytes(size_buf[2..].try_into().expect("cols"));
+
+    let session = ShellSession {
+        from: device,
+        rows,
+        cols,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        shell_acceptor,
+        device,
+        session,
+        "rejected shell stream: shell acceptor not registered",
+        "shell acceptor closed",
+    )
+    .await;
+}
+
+async fn forward_to_acceptor<T>(
+    acceptor: Arc<Mutex<Option<mpsc::Sender<T>>>>,
+    device: DeviceId,
+    session: T,
+    not_registered_msg: &'static str,
+    closed_msg: &'static str,
+) {
+    let acceptor = acceptor.lock().await.clone();
+    let Some(acceptor) = acceptor else {
+        warn!(%device, "{not_registered_msg}");
+        return;
+    };
+
+    if acceptor.send(session).await.is_err() {
+        warn!(%device, "{closed_msg}");
+    }
+}
+
+async fn handle_feature_frame(
+    header: [u8; 4],
+    mut recv: RecvStream,
+    send: SendStream,
+    device: DeviceId,
+    local_device_id: DeviceId,
+    inbox: mpsc::Sender<FeatureMessage>,
+) {
     let length = u32::from_be_bytes(header) as usize;
     if length > MAX_MESSAGE_SIZE {
         warn!(%device, "feature frame exceeds maximum size");
