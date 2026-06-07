@@ -56,7 +56,8 @@ impl SendCoordinator {
     }
 
     pub async fn complete(&self, transfer_id: Uuid, result: Result<(), String>) {
-        let pending_send = self.pending.lock().await.remove(&transfer_id);
+        let mut pending = self.pending.lock().await;
+        let pending_send = pending.remove(&transfer_id);
         match pending_send {
             Some(pending_send) => {
                 let ok = result.is_ok();
@@ -67,15 +68,15 @@ impl SendCoordinator {
                 let _ = pending_send.ack.send(result);
             }
             None => {
-                let pending: Vec<Uuid> = self.pending.lock().await.keys().copied().collect();
+                let pending_ids: Vec<Uuid> = pending.keys().copied().collect();
                 warn!(
                     %transfer_id,
-                    ?pending,
+                    ?pending_ids,
                     ok = result.is_ok(),
                     "received acknowledgement for transfer with no registered waiter"
                 );
                 eprint_send(format_args!(
-                    " orphan ack for {transfer_id} (ok={}); pending: {pending:?}",
+                    " orphan ack for {transfer_id} (ok={}); pending: {pending_ids:?}",
                     result.is_ok()
                 ));
             }
