@@ -62,11 +62,7 @@ async fn register(
         ));
     }
 
-    if request.password.len() < 8 {
-        return Err(ServerError::BadRequest(
-            "password must be at least 8 characters".to_owned(),
-        ));
-    }
+    validate_password_length(&request.password, "password must be at least 8 characters")?;
 
     let existing = Account::find()
         .filter(account::Column::Email.eq(request.email.trim().to_lowercase()))
@@ -134,23 +130,7 @@ async fn login_mfa(
         return Err(ServerError::Unauthorized);
     }
 
-    let code = request.code.trim();
-    let mut verified = false;
-
-    if let Some(encrypted_secret) = &account.totp_secret {
-        let secret = decrypt_secret(&state.encryption_key, encrypted_secret)?;
-        if verify_totp(&account.email, &secret, code).is_ok() {
-            verified = true;
-        }
-    }
-
-    if !verified {
-        verified = consume_recovery_code(&state, account_id, code).await?;
-    }
-
-    if !verified {
-        return Err(ServerError::Unauthorized);
-    }
+    verify_totp_or_recovery(&state, account_id, &account, request.code.trim()).await?;
 
     Ok(Json(issue_auth_response(&state, account_id).await?))
 }
@@ -192,11 +172,10 @@ async fn change_password(
         ));
     }
 
-    if request.new_password.len() < 8 {
-        return Err(ServerError::BadRequest(
-            "new password must be at least 8 characters".to_owned(),
-        ));
-    }
+    validate_password_length(
+        &request.new_password,
+        "new password must be at least 8 characters",
+    )?;
 
     let account = load_account(account_id, &state).await?;
     verify_password(&request.current_password, &account.password_hash)?;
@@ -310,23 +289,7 @@ async fn totp_disable(
 
     verify_password(&request.password, &account.password_hash)?;
 
-    let code = request.code.trim();
-    let mut verified = false;
-
-    if let Some(encrypted_secret) = &account.totp_secret {
-        let secret = decrypt_secret(&state.encryption_key, encrypted_secret)?;
-        if verify_totp(&account.email, &secret, code).is_ok() {
-            verified = true;
-        }
-    }
-
-    if !verified {
-        verified = consume_recovery_code(&state, account_id, code).await?;
-    }
-
-    if !verified {
-        return Err(ServerError::Unauthorized);
-    }
+    verify_totp_or_recovery(&state, account_id, &account, request.code.trim()).await?;
 
     let txn = state.db.begin().await?;
 
@@ -344,6 +307,33 @@ async fn totp_disable(
     txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn validate_password_length(password: &str, message: &str) -> ServerResult<()> {
+    if password.len() < 8 {
+        return Err(ServerError::BadRequest(message.to_owned()));
+    }
+    Ok(())
+}
+
+async fn verify_totp_or_recovery(
+    state: &AppState,
+    account_id: AccountId,
+    account: &account::Model,
+    code: &str,
+) -> ServerResult<()> {
+    if let Some(encrypted_secret) = &account.totp_secret {
+        let secret = decrypt_secret(&state.encryption_key, encrypted_secret)?;
+        if verify_totp(&account.email, &secret, code).is_ok() {
+            return Ok(());
+        }
+    }
+
+    if consume_recovery_code(state, account_id, code).await? {
+        return Ok(());
+    }
+
+    Err(ServerError::Unauthorized)
 }
 
 async fn load_account(account_id: AccountId, state: &AppState) -> ServerResult<account::Model> {
