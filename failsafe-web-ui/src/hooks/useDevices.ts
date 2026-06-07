@@ -16,8 +16,6 @@ export function useDevices() {
     const isBackground = hasLoaded.current
     if (isBackground) {
       setRefreshing(true)
-    } else {
-      setInitialLoading(true)
     }
     setError(null)
 
@@ -31,13 +29,41 @@ export function useDevices() {
       )
     } finally {
       setInitialLoading(false)
-      setRefreshing(false)
+      if (isBackground) {
+        setRefreshing(false)
+      }
     }
   }, [])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    let cancelled = false
+
+    void (async () => {
+      setError(null)
+
+      try {
+        const response = await listDevices()
+        if (!cancelled) {
+          setDevices(response.devices)
+          hasLoaded.current = true
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Couldn't load devices"
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setInitialLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
