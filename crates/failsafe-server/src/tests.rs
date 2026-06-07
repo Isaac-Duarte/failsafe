@@ -3,10 +3,11 @@ use chrono::{Duration, Utc};
 use failsafe_core::api::{
     AccountId, AccountResponse, AuthLoginRequest, AuthLogoutRequest, AuthMfaLoginRequest,
     AuthRefreshRequest, AuthRegisterRequest, AuthResponse, ChangePasswordRequest, DeviceInfo,
-    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, PairingCreateResponse,
-    PairingRedeemRequest, TotpDisableRequest, TotpEnableRequest, TotpEnableResponse,
-    TotpSetupResponse,
+    DeviceListResponse, DevicePatchRequest, DeviceUpsertRequest, FeatureInfo,
+    FeaturesListResponse, PairingCreateResponse, PairingRedeemRequest, TotpDisableRequest,
+    TotpEnableRequest, TotpEnableResponse, TotpSetupResponse,
 };
+use failsafe_feature_registry::catalog;
 use failsafe_core::device::DeviceId;
 use failsafe_core::feature::FeatureId;
 use http_body_util::BodyExt;
@@ -352,6 +353,79 @@ async fn register_and_get_token(app: &axum::Router) -> String {
     assert_eq!(register_response.status(), axum::http::StatusCode::OK);
     let auth: AuthResponse = body_json(register_response.into_body()).await;
     auth_token(&auth).to_owned()
+}
+
+#[tokio::test]
+async fn list_features_returns_catalog() {
+    let app = test_app().await;
+
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/api/v1/features")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let FeaturesListResponse { features } = body_json(response.into_body()).await;
+    assert_eq!(features, catalog());
+    assert!(features.iter().any(|feature: &FeatureInfo| feature.id == "clipboard"));
+}
+
+#[tokio::test]
+async fn patch_rejects_unknown_feature() {
+    let app = test_app().await;
+    let token = register_and_get_token(&app).await;
+    let device_id = DeviceId::new();
+
+    app.clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DeviceUpsertRequest {
+                        device_id,
+                        name: "laptop".to_owned(),
+                        iroh_public_key: "abc123".to_owned(),
+                        enabled_features: vec![FeatureId::from_static("clipboard")],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let patch_response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/devices/{device_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(
+                    serde_json::to_string(&DevicePatchRequest {
+                        name: None,
+                        enabled_features: Some(vec![FeatureId::from_static("clipbord")]),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        patch_response.status(),
+        axum::http::StatusCode::BAD_REQUEST
+    );
 }
 
 #[tokio::test]

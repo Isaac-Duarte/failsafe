@@ -124,7 +124,7 @@ impl ControlServer {
     }
 
     async fn dispatch_request(&self, mut stream: ControlStream, request: ControlRequest) {
-        let local_features = self.local_features.read().await;
+        let local_features = self.local_features.read().await.clone();
         let ctx = ControlContext {
             peers: &self.peers,
             local_features: &local_features,
