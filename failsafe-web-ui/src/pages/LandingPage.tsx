@@ -161,20 +161,6 @@ export function LandingPage() {
                 </p>
               </div>
             </div>
-            <div className="col-span-2 flex items-center justify-between rounded-xl border border-primary/30 bg-primary/10 p-4">
-              <div className="flex items-center gap-3">
-                <img src="/failsafe-logo.svg" alt="" className="size-12" />
-                <div>
-                  <p className="font-semibold">Signal path active</p>
-                  <p className="text-sm text-muted-foreground">
-                    Private capabilities routed per device.
-                  </p>
-                </div>
-              </div>
-              <span className="hidden font-mono text-xs text-primary sm:block">
-                FS-PAIR
-              </span>
-            </div>
           </div>
         </div>
       </section>
