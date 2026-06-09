@@ -13,18 +13,17 @@ pub enum CaptureError {
 }
 
 pub fn list_displays() -> Result<Vec<(u32, String)>, CaptureError> {
-    Monitor::all()
-        .map_err(|error| CaptureError::Platform(error.to_string()))
-        .map(|monitors| {
-            monitors
-                .into_iter()
-                .enumerate()
-                .map(|(index, monitor)| {
-                    let name = monitor.name().to_owned();
-                    (index as u32, name)
-                })
-                .collect()
+    let monitors = Monitor::all().map_err(|error| CaptureError::Platform(error.to_string()))?;
+    monitors
+        .into_iter()
+        .enumerate()
+        .map(|(index, monitor)| {
+            let name = monitor
+                .name()
+                .map_err(|error| CaptureError::Platform(error.to_string()))?;
+            Ok((index as u32, name))
         })
+        .collect()
 }
 
 pub fn capture_display_jpeg(display_index: u32, quality: u8) -> Result<(Vec<u8>, u32, u32), CaptureError> {
@@ -34,8 +33,12 @@ pub fn capture_display_jpeg(display_index: u32, quality: u8) -> Result<(Vec<u8>,
         .nth(display_index as usize)
         .ok_or_else(|| CaptureError::Platform(format!("display index {display_index} not found")))?;
 
-    let width = monitor.width();
-    let height = monitor.height();
+    let width = monitor
+        .width()
+        .map_err(|error| CaptureError::Platform(error.to_string()))?;
+    let height = monitor
+        .height()
+        .map_err(|error| CaptureError::Platform(error.to_string()))?;
     let image = monitor
         .capture_image()
         .map_err(|error| CaptureError::Platform(error.to_string()))?;
