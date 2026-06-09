@@ -7,7 +7,7 @@ edition.workspace = true
 async-trait.workspace = true
 enigo = "0.6"
 failsafe-core.workspace = true
-failsafe-transport = { workspace = true, features = ["iroh"] }
+failsafe-transport = { workspace = true, features = ["iroh", "iroh-blobs"] }
 image = { workspace = true, features = ["jpeg"] }
 iroh.workspace = true
 minifb = "0.28"
