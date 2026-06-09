@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use failsafe_core::api::DeviceUpsertRequest;
-use failsafe_core::peer_address::PeerAddressBook;
 
-use failsafe::{
-    Credentials, DaemonError, ServerClient, create_transport_bundle, register_local_device,
-};
+use failsafe::{Credentials, DaemonError, ServerClient, register_local_device};
+use failsafe_transport::iroh::iroh_public_key_hex;
 
 use crate::cli::context::{config_path_or_default, load_config};
+use crate::config::Config;
 use crate::cli::util::default_hostname;
 
 pub async fn pair(
@@ -62,10 +61,10 @@ async fn pair_join(
         DaemonError::Config("pairing code must be 8 uppercase alphanumeric characters".to_owned())
     })?;
 
-    let bundle = create_transport_bundle(&config, PeerAddressBook::default()).await?;
-    let iroh_public_key = bundle
-        .iroh_public_key
-        .ok_or_else(|| DaemonError::Config("iroh public key is required".to_owned()))?;
+    let secret_key_path = Config::default_secret_key_path().ok_or_else(|| {
+        DaemonError::Config("could not determine iroh secret key path".to_owned())
+    })?;
+    let iroh_public_key = iroh_public_key_hex(&secret_key_path)?;
 
     let response = ServerClient::redeem_pairing_code(
         &config.server_url,

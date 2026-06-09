@@ -14,4 +14,4 @@ pub use stream::{
     PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor,
     ShellSession, relay_shell_streams, relay_shell_to_channels,
 };
-pub use transport::IrohTransport;
+pub use transport::{IrohTransport, iroh_public_key_hex};
