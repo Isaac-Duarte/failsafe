@@ -1,5 +1,6 @@
 mod auth;
 mod devices;
+mod lan;
 mod pair;
 mod port;
 mod run;
@@ -9,6 +10,7 @@ mod status;
 
 pub use auth::authenticate;
 pub use devices::devices;
+pub use lan::status as lan_status;
 pub use pair::pair;
 pub use port::port;
 pub use run::run;

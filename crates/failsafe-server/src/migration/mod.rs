@@ -5,6 +5,7 @@ mod m20250605_000002_create_pairing_codes;
 mod m20250605_000003_add_device_deleted_at;
 mod m20250606_000004_create_refresh_tokens;
 mod m20250606_000005_add_account_2fa;
+mod m20250609_000006_add_device_virtual_ip;
 
 pub struct Migrator;
 
@@ -17,6 +18,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250605_000003_add_device_deleted_at::Migration),
             Box::new(m20250606_000004_create_refresh_tokens::Migration),
             Box::new(m20250606_000005_add_account_2fa::Migration),
+            Box::new(m20250609_000006_add_device_virtual_ip::Migration),
         ]
     }
 }

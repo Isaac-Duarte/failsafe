@@ -11,7 +11,8 @@ mod tests;
 pub use address::SharedAddressState;
 pub use config::IrohConfig;
 pub use stream::{
-    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor,
-    ShellSession, relay_shell_streams, relay_shell_to_channels,
+    LanAcceptor, LanSession, PortAcceptor, PortSession, SharedLanAcceptor, SharedPortAcceptor,
+    SharedShellAcceptor, ShellAcceptor, ShellSession, read_lan_packet, relay_shell_streams,
+    relay_shell_to_channels, write_lan_packet,
 };
 pub use transport::{IrohTransport, iroh_public_key_hex};

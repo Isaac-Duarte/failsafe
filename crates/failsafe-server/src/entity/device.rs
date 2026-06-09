@@ -9,6 +9,7 @@ pub struct Model {
     pub name: String,
     pub iroh_public_key: String,
     pub enabled_features: Json,
+    pub virtual_ip: Option<String>,
     pub last_seen: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

@@ -1,0 +1,20 @@
+[package]
+name = "failsafe-lan"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+failsafe-core.workspace = true
+failsafe-transport = { workspace = true, features = ["iroh"] }
+pnet_packet = "0.35"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync"] }
+tracing.workspace = true
+tun = { version = "0.7", features = ["async"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }

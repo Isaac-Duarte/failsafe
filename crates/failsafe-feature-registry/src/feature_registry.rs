@@ -8,6 +8,7 @@ use failsafe_core::feature::{FeatureControl, FeatureId, FeatureSpec, UnknownFeat
 use failsafe_core::outbound::OutboundPublisher;
 use failsafe_core::peer::PeerDirectory;
 use failsafe_core::registry::FeatureRegistry;
+use failsafe_lan::{LanFeature, LanFeatureControl, LanFeatureSpec, SharedLanState, SharedRoutingTable};
 use failsafe_port::{PortFeature, PortFeatureControl, PortFeatureSpec};
 use failsafe_send::{SendCoordinator, SendFeature, SendFeatureControl, SendFeatureSpec};
 use failsafe_shell::{ShellFeature, ShellFeatureControl, ShellFeatureSpec};
@@ -30,6 +31,7 @@ const CATALOG_BUILDERS: &[SpecFn] = &[
     || spec_info::<ClipboardFeatureSpec>(),
     || spec_info::<ShellFeatureSpec>(),
     || spec_info::<PortFeatureSpec>(),
+    || spec_info::<LanFeatureSpec>(),
     || spec_info::<SendFeatureSpec>(),
 ];
 
@@ -42,6 +44,7 @@ pub fn all_ids() -> Vec<FeatureId> {
         ClipboardFeatureSpec::feature_id(),
         ShellFeatureSpec::feature_id(),
         PortFeatureSpec::feature_id(),
+        LanFeatureSpec::feature_id(),
         SendFeatureSpec::feature_id(),
     ]
 }
@@ -65,6 +68,8 @@ pub struct DaemonBuildContext {
     pub transport: Arc<dyn Transport>,
     pub send_coordinator: Arc<SendCoordinator>,
     pub iroh: Option<Arc<IrohTransport>>,
+    pub lan_routing: SharedRoutingTable,
+    pub lan_runtime: SharedLanState,
 }
 
 pub fn build_feature_registry(ctx: &DaemonBuildContext) -> Result<FeatureRegistry, failsafe_core::feature::FeatureError> {
@@ -85,7 +90,12 @@ pub fn build_feature_registry(ctx: &DaemonBuildContext) -> Result<FeatureRegistr
 
     if let Some(iroh) = ctx.iroh.clone() {
         registry.register(Box::new(ShellFeature::new(iroh.clone())))?;
-        registry.register(Box::new(PortFeature::new(iroh)))?;
+        registry.register(Box::new(PortFeature::new(iroh.clone())))?;
+        registry.register(Box::new(LanFeature::new(
+            iroh,
+            ctx.lan_routing.clone(),
+            ctx.lan_runtime.clone(),
+        )))?;
     }
 
     Ok(registry)
@@ -100,6 +110,7 @@ pub struct ControlBuildContext {
     pub coordinator: Arc<SendCoordinator>,
     pub local_features: Arc<RwLock<HashSet<FeatureId>>>,
     pub peers: Arc<PeerDirectory>,
+    pub lan_runtime: SharedLanState,
 }
 
 pub fn build_control_handlers(
@@ -108,6 +119,7 @@ pub fn build_control_handlers(
     vec![
         Box::new(ShellFeatureControl::new(ctx.iroh.clone())),
         Box::new(PortFeatureControl::new(ctx.iroh.clone())),
+        Box::new(LanFeatureControl::new(ctx.lan_runtime.clone(), ctx.iroh.clone())),
         Box::new(SendFeatureControl::new(
             ctx.transport.clone(),
             ctx.blob_transfer.clone(),

@@ -148,6 +148,8 @@ pub struct DeviceInfo {
     pub name: String,
     pub iroh_public_key: String,
     pub enabled_features: Vec<FeatureId>,
+    /// Stable virtual IPv4 assigned by the server for LAN gaming (e.g. `100.64.1.2`).
+    pub virtual_ip: Option<String>,
     pub last_seen: Option<String>,
     pub online: bool,
 }

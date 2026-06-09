@@ -14,6 +14,7 @@ pub mod refresh_token;
 pub mod routes;
 pub mod state;
 pub mod totp;
+pub mod virtual_ip;
 pub mod web;
 
 use std::path::PathBuf;

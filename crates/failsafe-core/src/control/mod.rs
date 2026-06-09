@@ -112,6 +112,12 @@ pub enum ControlResponse {
     Ready,
     Error { message: String },
     CancelTransfers { sends: usize, receives: usize },
+    LanStatus {
+        virtual_ip: Option<String>,
+        subnet_cidr: Option<String>,
+        interface_up: bool,
+        message: Option<String>,
+    },
 }
 
 pub fn control_socket_path() -> Result<PathBuf, ControlError> {

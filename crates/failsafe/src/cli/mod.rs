@@ -42,6 +42,11 @@ pub async fn execute() -> Result<(), DaemonError> {
             yes,
             cancel_all,
         } => commands::send(config, server_url, paths, resume, device, yes, cancel_all).await,
+        Command::Lan { command } => match command {
+            args::LanCommand::Status { config } => {
+                commands::lan_status(config, server_url).await
+            }
+        },
         Command::Port {
             config,
             port,

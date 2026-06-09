@@ -98,6 +98,11 @@ pub enum Command {
         #[arg(long)]
         cancel_all: bool,
     },
+    /// Virtual LAN for family gaming.
+    Lan {
+        #[command(subcommand)]
+        command: LanCommand,
+    },
     /// Forward a local TCP port to a paired device.
     Port {
         /// Path to the config file.
@@ -112,6 +117,16 @@ pub enum Command {
         remote_port: Option<u16>,
         /// Device name or ID. Omit for interactive selection.
         device: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LanCommand {
+    /// Show local virtual IP and family device addresses.
+    Status {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 

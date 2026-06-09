@@ -15,6 +15,7 @@ use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::iroh::IrohTransport;
 use failsafe_transport::transport::Transport;
 use failsafe_feature_registry::{ControlBuildContext, build_control_handlers};
+use failsafe_lan::SharedLanState;
 use tokio::sync::RwLock;
 use tracing::warn;
 
@@ -39,6 +40,7 @@ impl ControlServer {
         coordinator: Arc<SendCoordinator>,
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
+        lan_runtime: SharedLanState,
     ) -> Result<Self, DaemonError> {
         let token = generate_control_token();
         Ok(Self::with_path(
@@ -52,6 +54,7 @@ impl ControlServer {
             coordinator,
             local_features,
             peers,
+            lan_runtime,
         ))
     }
 
@@ -66,6 +69,7 @@ impl ControlServer {
         coordinator: Arc<SendCoordinator>,
         local_features: Arc<RwLock<HashSet<FeatureId>>>,
         peers: Arc<PeerDirectory>,
+        lan_runtime: SharedLanState,
     ) -> Self {
         let handlers = build_control_handlers(&ControlBuildContext {
             iroh,
@@ -76,6 +80,7 @@ impl ControlServer {
             coordinator,
             local_features: local_features.clone(),
             peers: peers.clone(),
+            lan_runtime,
         });
 
         Self {

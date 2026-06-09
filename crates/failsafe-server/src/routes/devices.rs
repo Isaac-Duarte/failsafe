@@ -15,6 +15,7 @@ use crate::entity::{Device, device};
 use crate::error::{ServerError, ServerResult};
 use crate::presence;
 use crate::state::AppState;
+use crate::virtual_ip::ensure_virtual_ip;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -95,11 +96,19 @@ where
                 }
                 RegisterDeviceMode::Pairing => {
                     let now = Utc::now();
+                    let virtual_ip = ensure_virtual_ip(
+                        conn,
+                        account_id.0,
+                        device_id,
+                        existing.virtual_ip.clone(),
+                    )
+                    .await?;
                     let mut active: device::ActiveModel = existing.into();
                     active.deleted_at = Set(None);
                     active.name = Set(request.name.trim().to_owned());
                     active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
                     active.enabled_features = Set(features_to_json(&request.enabled_features)?);
+                    active.virtual_ip = Set(Some(virtual_ip));
                     active.last_seen = Set(Some(now));
                     Ok(active.update(conn).await?)
                 }
@@ -108,19 +117,29 @@ where
 
         // Policy fields (name, enabled_features) are server-authoritative and only
         // change via PATCH. PUT updates transport state for existing devices.
+        let virtual_ip = ensure_virtual_ip(
+            conn,
+            account_id.0,
+            device_id,
+            existing.virtual_ip.clone(),
+        )
+        .await?;
         let mut active: device::ActiveModel = existing.into();
         active.iroh_public_key = Set(request.iroh_public_key.trim().to_owned());
+        active.virtual_ip = Set(Some(virtual_ip));
         active.last_seen = Set(Some(Utc::now()));
         return Ok(active.update(conn).await?);
     }
 
     let now = Utc::now();
+    let virtual_ip = ensure_virtual_ip(conn, account_id.0, device_id, None).await?;
     Ok(device::ActiveModel {
         device_id: Set(device_id),
         account_id: Set(account_id.0),
         name: Set(request.name.trim().to_owned()),
         iroh_public_key: Set(request.iroh_public_key.trim().to_owned()),
         enabled_features: Set(features_to_json(&request.enabled_features)?),
+        virtual_ip: Set(Some(virtual_ip)),
         last_seen: Set(Some(now)),
         created_at: Set(now),
         deleted_at: Set(None),
@@ -230,6 +249,7 @@ fn model_to_info(model: device::Model) -> ServerResult<DeviceInfo> {
         name: model.name,
         iroh_public_key: model.iroh_public_key,
         enabled_features,
+        virtual_ip: model.virtual_ip,
         last_seen: model.last_seen.map(|ts| ts.to_rfc3339()),
         online: presence::is_online(model.last_seen),
     })

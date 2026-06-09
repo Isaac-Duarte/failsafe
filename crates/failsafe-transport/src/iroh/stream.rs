@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, warn};
 
 use crate::codec;
+use crate::lan;
 use crate::port;
 use crate::shell;
 use crate::transport::TransportError;
@@ -20,6 +21,15 @@ pub type SharedShellAcceptor = Arc<Mutex<Option<ShellAcceptor>>>;
 
 pub type PortAcceptor = mpsc::Sender<PortSession>;
 pub type SharedPortAcceptor = Arc<Mutex<Option<PortAcceptor>>>;
+
+pub type LanAcceptor = mpsc::Sender<LanSession>;
+pub type SharedLanAcceptor = Arc<Mutex<Option<LanAcceptor>>>;
+
+pub struct LanSession {
+    pub from: DeviceId,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
 
 pub struct ShellSession {
     pub from: DeviceId,
@@ -63,6 +73,7 @@ pub async fn handle_incoming_bi_stream(
     inbox: mpsc::Sender<FeatureMessage>,
     port_acceptor: SharedPortAcceptor,
     shell_acceptor: SharedShellAcceptor,
+    lan_acceptor: SharedLanAcceptor,
 ) {
     let mut header = [0u8; 4];
     if let Err(error) = read_exact(&mut recv, &mut header).await {
@@ -75,12 +86,38 @@ pub async fn handle_incoming_bi_stream(
         return;
     }
 
+    if lan::is_lan_handshake(&header) {
+        try_accept_lan_stream(recv, send, lan_acceptor, device).await;
+        return;
+    }
+
     if shell::is_shell_handshake(&header) {
         try_accept_shell_stream(header, recv, send, shell_acceptor, device).await;
         return;
     }
 
     handle_feature_frame(header, recv, send, device, local_device_id, inbox).await;
+}
+
+async fn try_accept_lan_stream(
+    recv: RecvStream,
+    send: SendStream,
+    lan_acceptor: SharedLanAcceptor,
+    device: DeviceId,
+) {
+    let session = LanSession {
+        from: device,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        lan_acceptor,
+        device,
+        session,
+        "rejected lan stream: lan acceptor not registered",
+        "lan acceptor closed",
+    )
+    .await;
 }
 
 async fn try_accept_port_stream(
@@ -226,6 +263,38 @@ async fn handle_feature_frame(
             }
         }
     });
+}
+
+pub async fn read_lan_packet(recv: &mut RecvStream) -> Result<Vec<u8>, TransportError> {
+    let mut len_buf = [0u8; 4];
+    read_exact(recv, &mut len_buf).await?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len == 0 || len > lan::MAX_LAN_PACKET_SIZE {
+        return Err(TransportError::Codec(format!(
+            "invalid lan packet length: {len}"
+        )));
+    }
+    let mut packet = vec![0u8; len];
+    read_exact(recv, &mut packet).await?;
+    Ok(packet)
+}
+
+pub async fn write_lan_packet(send: &mut SendStream, packet: &[u8]) -> Result<(), TransportError> {
+    if packet.is_empty() || packet.len() > lan::MAX_LAN_PACKET_SIZE {
+        return Err(TransportError::Codec(format!(
+            "invalid lan packet size: {}",
+            packet.len()
+        )));
+    }
+    let len = u32::try_from(packet.len())
+        .map_err(|_| TransportError::Codec("lan packet too large".to_owned()))?;
+    send.write_all(&len.to_be_bytes())
+        .await
+        .map_err(|error| TransportError::Codec(error.to_string()))?;
+    send.write_all(packet)
+        .await
+        .map_err(|error| TransportError::Codec(error.to_string()))?;
+    Ok(())
 }
 
 pub async fn relay_shell_streams<R, W>(

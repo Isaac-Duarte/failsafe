@@ -22,8 +22,10 @@ use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
 use crate::iroh::stream::{
-    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession,
+    LanAcceptor, LanSession, PortAcceptor, PortSession, SharedLanAcceptor, SharedPortAcceptor,
+    SharedShellAcceptor, ShellAcceptor, ShellSession,
 };
+use crate::lan;
 use crate::peer_updater::PeerAddressUpdater;
 use crate::port;
 use crate::shell;
@@ -40,6 +42,7 @@ pub struct IrohTransport {
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    lan_acceptor: SharedLanAcceptor,
 }
 
 impl IrohTransport {
@@ -72,6 +75,7 @@ impl IrohTransport {
 
         let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
         let port_acceptor: SharedPortAcceptor = Arc::new(Mutex::new(None));
+        let lan_acceptor: SharedLanAcceptor = Arc::new(Mutex::new(None));
 
         let local_endpoint_id = endpoint.id();
         let failsafe_protocol = FailsafeProtocol::new(
@@ -82,6 +86,7 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            lan_acceptor.clone(),
         );
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
@@ -97,6 +102,7 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            lan_acceptor.clone(),
         );
 
         Ok(Self {
@@ -110,6 +116,7 @@ impl IrohTransport {
             address_state,
             shell_acceptor,
             port_acceptor,
+            lan_acceptor,
         })
     }
 
@@ -147,6 +154,14 @@ impl IrohTransport {
 
     pub async fn clear_port_acceptor(&self) {
         *self.port_acceptor.lock().await = None;
+    }
+
+    pub async fn set_lan_acceptor(&self, acceptor: LanAcceptor) {
+        *self.lan_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_lan_acceptor(&self) {
+        *self.lan_acceptor.lock().await = None;
     }
 
     pub async fn open_shell_stream(
@@ -206,6 +221,30 @@ impl IrohTransport {
             from: peer,
             remote_port,
             protocol,
+            send,
+            recv,
+        })
+    }
+
+    pub async fn open_lan_stream(&self, peer: DeviceId) -> Result<LanSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = lan::build_lan_init();
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(LanSession {
+            from: peer,
             send,
             recv,
         })

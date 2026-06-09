@@ -12,6 +12,10 @@ use failsafe_core::peer::PeerDirectory;
 use failsafe_core::peer_address::PeerAddressBook;
 use failsafe_core::registry::FeatureRegistry;
 use failsafe_feature_registry::{DaemonBuildContext, build_feature_registry};
+use failsafe_lan::{
+    SharedLanState, SharedRoutingTable, shared_lan_state, shared_routing_table,
+    update_routing_from_devices,
+};
 use failsafe_send::SendCoordinator;
 use failsafe_transport::blobs::BlobTransfer;
 use failsafe_transport::blobs::MockBlobTransfer;
@@ -50,6 +54,8 @@ pub struct Daemon {
     send_limits: ClipboardLimits,
     config_path: Option<PathBuf>,
     config: Option<Config>,
+    lan_routing: SharedRoutingTable,
+    lan_runtime: SharedLanState,
 }
 
 pub struct DaemonBuilder {
@@ -63,6 +69,8 @@ pub struct DaemonBuilder {
     blob_transfer: Option<Arc<dyn BlobTransfer>>,
     clipboard_limits: ClipboardLimits,
     iroh: Option<Arc<failsafe_transport::iroh::IrohTransport>>,
+    lan_routing: Option<SharedRoutingTable>,
+    lan_runtime: Option<SharedLanState>,
 }
 
 impl DaemonBuilder {
@@ -78,6 +86,8 @@ impl DaemonBuilder {
             blob_transfer: None,
             clipboard_limits: ClipboardLimits::default(),
             iroh: None,
+            lan_routing: None,
+            lan_runtime: None,
         }
     }
 
@@ -136,6 +146,16 @@ impl DaemonBuilder {
         self
     }
 
+    pub fn lan_routing(mut self, routing: SharedRoutingTable) -> Self {
+        self.lan_routing = Some(routing);
+        self
+    }
+
+    pub fn lan_runtime(mut self, runtime: SharedLanState) -> Self {
+        self.lan_runtime = Some(runtime);
+        self
+    }
+
     pub fn build(self) -> Result<Daemon, DaemonError> {
         let transport = self
             .transport
@@ -152,6 +172,12 @@ impl DaemonBuilder {
             .unwrap_or_else(|| Arc::new(MockBlobTransfer::new()));
         let send_coordinator = SendCoordinator::new();
 
+        let lan_routing = self
+            .lan_routing
+            .clone()
+            .unwrap_or_else(shared_routing_table);
+        let lan_runtime = self.lan_runtime.clone().unwrap_or_else(shared_lan_state);
+
         let mut registry = build_feature_registry(&DaemonBuildContext {
             publisher,
             blob_transfer: blob_transfer.clone(),
@@ -159,6 +185,8 @@ impl DaemonBuilder {
             transport: transport.clone(),
             send_coordinator: send_coordinator.clone(),
             iroh: self.iroh.clone(),
+            lan_routing: lan_routing.clone(),
+            lan_runtime: lan_runtime.clone(),
         })
         .map_err(DaemonError::Feature)?;
 
@@ -184,6 +212,8 @@ impl DaemonBuilder {
             send_limits: ClipboardLimits::unlimited(),
             config_path: None,
             config: None,
+            lan_routing,
+            lan_runtime,
         })
     }
 }
@@ -297,6 +327,8 @@ impl Daemon {
         )
         .await;
 
+        update_routing_from_devices(&self.lan_routing, self_id, &response.devices).await;
+
         Ok(())
     }
 
@@ -353,6 +385,7 @@ impl Daemon {
                     self.send_coordinator.clone(),
                     shared_features.clone(),
                     self.peers.clone(),
+                    self.lan_runtime.clone(),
                 )
             })
             .transpose()?
