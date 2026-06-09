@@ -2,11 +2,10 @@ use std::path::{Path, PathBuf};
 
 use failsafe_core::api::DeviceUpsertRequest;
 
-use failsafe::{Credentials, DaemonError, ServerClient, register_local_device};
+use failsafe::{Config, Credentials, DaemonError, ServerClient, register_local_device};
 use failsafe_transport::iroh::iroh_public_key_hex;
 
 use crate::cli::context::{config_path_or_default, load_config};
-use crate::config::Config;
 use crate::cli::util::default_hostname;
 
 pub async fn pair(
