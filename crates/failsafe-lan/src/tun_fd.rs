@@ -29,44 +29,48 @@ mod unix {
         }
 
         let iov = [IoSlice::new(name)];
-        sendmsg(
+        sendmsg::<()>(
             stream.as_raw_fd(),
             &iov,
             &[ControlMessage::ScmRights(&[fd])],
             MsgFlags::empty(),
+            None,
         )?;
         Ok(())
     }
 
     pub fn recv_tun_fd(stream: &UnixStream) -> Result<(String, OwnedFd), FdPassError> {
         let mut name_buf = [0u8; 256];
-        let mut iov = [IoSliceMut::new(&mut name_buf)];
-        let mut cmsg = nix::cmsg_space!(RawFd);
+        let (received, fds) = {
+            let mut iov = [IoSliceMut::new(&mut name_buf)];
+            let mut cmsg = nix::cmsg_space!(RawFd);
 
-        let msg = recvmsg::<()>(
-            stream.as_raw_fd(),
-            &mut iov,
-            Some(&mut cmsg),
-            MsgFlags::empty(),
-        )?;
+            let msg = recvmsg::<()>(
+                stream.as_raw_fd(),
+                &mut iov,
+                Some(&mut cmsg),
+                MsgFlags::empty(),
+            )?;
 
-        let received = msg.bytes;
-        if received == 0 {
-            return Err(FdPassError::Protocol(
-                "helper closed socket before sending fd".to_owned(),
-            ));
-        }
+            let received = msg.bytes;
+            if received == 0 {
+                return Err(FdPassError::Protocol(
+                    "helper closed socket before sending fd".to_owned(),
+                ));
+            }
+
+            let mut fds = Vec::new();
+            for cmsg in msg.cmsgs().map_err(FdPassError::Nix)? {
+                if let ControlMessageOwned::ScmRights(rights) = cmsg {
+                    fds.extend(rights);
+                }
+            }
+            (received, fds)
+        };
 
         let name = std::str::from_utf8(&name_buf[..received])
             .map_err(|error| FdPassError::Protocol(error.to_string()))?
             .to_owned();
-
-        let mut fds = Vec::new();
-        for cmsg in msg.cmsgs().map_err(FdPassError::Nix)? {
-            if let ControlMessageOwned::ScmRights(rights) = cmsg {
-                fds.extend(rights);
-            }
-        }
 
         if fds.len() != 1 {
             return Err(FdPassError::Protocol(format!(

@@ -70,7 +70,17 @@ failsafe lan status
 #   dad-pc  100.64.12.2  (online)
 ```
 
-Connect to the peer's virtual IP directly in your game (instead of a LAN address). Virtual LAN requires administrator/root privileges to create the TUN interface. On Windows, place [`wintun.dll`](https://www.wintun.net/) next to the `failsafe` binary.
+Connect to the peer's virtual IP directly in your game (instead of a LAN address).
+
+**Privileges (Linux and macOS):** Run `failsafe run` from a terminal. When Virtual LAN starts, you will be prompted once for your password via `sudo` to create the network interface. The daemon itself stays unprivileged. To avoid repeated sudo prompts on Linux:
+
+```bash
+failsafe lan setup   # one-time: sudo setcap cap_net_admin+ep
+```
+
+On macOS there is no `setcap` equivalent; `sudo` will prompt when Virtual LAN starts (credentials are cached briefly).
+
+On Windows, place [`wintun.dll`](https://www.wintun.net/) next to the `failsafe` binary and run as administrator.
 
 ### Self-hosting (optional)
 

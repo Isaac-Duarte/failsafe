@@ -13,7 +13,7 @@ use tun::AbstractDevice;
 
 use crate::tun_fd::recv_tun_fd;
 use crate::tun_setup::{
-    build_tun_config, configure_routes, map_tun_error, open_sync_device, remove_routes,
+    build_tun_config, configure_routes, map_tun_error, remove_routes,
 };
 
 #[derive(Debug, Error)]
