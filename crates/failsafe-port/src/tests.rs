@@ -149,6 +149,9 @@ async fn open_port_forward_client(
         ControlResponse::CancelTransfers { .. } => {
             panic!("unexpected cancel transfers response in port test")
         }
+        ControlResponse::LanStatus { .. } => {
+            panic!("unexpected virtual lan response in port test")
+        }
     }
 }
 

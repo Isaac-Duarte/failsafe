@@ -32,6 +32,7 @@ export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
           <TableHead>Name</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="hidden lg:table-cell">Device ID</TableHead>
+          <TableHead className="hidden md:table-cell">Virtual IP</TableHead>
           <TableHead>Features</TableHead>
           <TableHead>Last seen</TableHead>
           <TableHead className="text-right">Actions</TableHead>
@@ -46,6 +47,14 @@ export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
             </TableCell>
             <TableCell className="hidden max-w-[12rem] truncate font-mono text-xs text-muted-foreground lg:table-cell">
               {device.device_id}
+            </TableCell>
+            <TableCell className="hidden font-mono text-xs md:table-cell">
+              {device.virtual_ip &&
+              device.enabled_features.includes("virtual_lan") ? (
+                device.virtual_ip
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </TableCell>
             <TableCell>
               <div className="flex flex-wrap gap-1">

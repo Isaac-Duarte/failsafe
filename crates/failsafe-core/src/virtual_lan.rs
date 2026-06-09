@@ -14,7 +14,7 @@ pub fn account_subnet_octets(account_id: Uuid) -> (u8, u8) {
 
 /// Assigns a deterministic virtual IPv4 for a device within an account subnet.
 pub fn assign_virtual_ip(account_id: Uuid, device_id: Uuid) -> Ipv4Addr {
-    let (oct3, oct4_base) = account_subnet_octets(account_id);
+    let (oct3, _) = account_subnet_octets(account_id);
     let hash = blake3::hash(device_id.as_bytes());
     let host = 2 + (hash.as_bytes()[0] as u16 % 253);
     Ipv4Addr::new(SUBNET_PREFIX[0], SUBNET_PREFIX[1], oct3, host as u8)

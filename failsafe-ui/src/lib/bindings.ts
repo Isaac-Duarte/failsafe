@@ -51,6 +51,8 @@ export type DeviceInfo = {
 	name: string,
 	iroh_public_key: string,
 	enabled_features: FeatureId[],
+	/**  Stable virtual IPv4 assigned by the server for LAN gaming (e.g. `100.64.1.2`). */
+	virtual_ip: string | null,
 	last_seen: string | null,
 	online: boolean,
 };

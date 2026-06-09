@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use failsafe::DaemonError;
 use failsafe_core::control::connect_control;
+use failsafe_core::feature::FeatureSpec;
 use failsafe_lan::{LanControlBody, LanFeatureSpec};
 
 use failsafe::control::{

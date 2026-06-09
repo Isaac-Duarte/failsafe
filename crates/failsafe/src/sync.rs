@@ -188,6 +188,7 @@ mod tests {
             name: "peer".to_owned(),
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![],
+            virtual_ip: None,
             last_seen: None,
             online: false,
         }];
@@ -211,6 +212,7 @@ mod tests {
             name: "peer".to_owned(),
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![FeatureId::from_static("clipboard")],
+            virtual_ip: None,
             last_seen: None,
             online: false,
         }];
@@ -234,6 +236,7 @@ mod tests {
             name: "server-name".to_owned(),
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![],
+            virtual_ip: None,
             last_seen: None,
             online: true,
         }];
@@ -272,6 +275,7 @@ mod tests {
             name: "server-name".to_owned(),
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![FeatureId::from_static("clipboard")],
+            virtual_ip: None,
             last_seen: None,
             online: true,
         }];
@@ -307,6 +311,7 @@ mod tests {
             name: "server-name".to_owned(),
             iroh_public_key: "abc".to_owned(),
             enabled_features: vec![FeatureId::from_static("clipboard"), FeatureId::from_static("shell")],
+            virtual_ip: None,
             last_seen: None,
             online: true,
         }];

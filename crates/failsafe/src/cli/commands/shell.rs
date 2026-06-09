@@ -67,6 +67,11 @@ pub async fn shell(
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }
+        ControlResponse::LanStatus { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected virtual lan response".to_owned(),
+            ));
+        }
     }
 
     if io::stdin().is_terminal() {

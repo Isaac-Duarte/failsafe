@@ -204,6 +204,9 @@ async fn expect_ready_response(stream: &mut ControlStream) -> Result<(), DaemonE
             "unexpected cancel transfers response".to_owned(),
         )),
         ControlResponse::Error { message } => Err(DaemonError::Config(message)),
+        ControlResponse::LanStatus { .. } => Err(DaemonError::Config(
+            "unexpected virtual lan response".to_owned(),
+        )),
     }
 }
 
@@ -223,6 +226,9 @@ async fn expect_cancel_transfers_response(stream: &mut ControlStream) -> Result<
             "unexpected ready response for cancel transfers".to_owned(),
         )),
         ControlResponse::Error { message } => Err(DaemonError::Config(message)),
+        ControlResponse::LanStatus { .. } => Err(DaemonError::Config(
+            "unexpected virtual lan response".to_owned(),
+        )),
     }
 }
 

@@ -7,6 +7,7 @@ use failsafe_core::virtual_lan::{network_address, subnet_mask};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+use tun::AbstractDevice;
 
 const INTERFACE_NAME: &str = "failsafe0";
 
@@ -25,7 +26,6 @@ pub enum TunError {
 pub struct TunHandle {
     device: Arc<Mutex<tun::AsyncDevice>>,
     name: String,
-    local_ip: Ipv4Addr,
     network: Ipv4Addr,
 }
 
@@ -36,24 +36,17 @@ impl TunHandle {
 
         let mut config = tun::Configuration::default();
         config
-            .name(INTERFACE_NAME)
+            .tun_name(INTERFACE_NAME)
             .address(local_ip)
             .netmask(mask)
             .destination(network)
             .up();
 
-        #[cfg(target_os = "linux")]
-        config.platform_config(|platform| {
-            platform.packet_information(false);
-        });
-
         let device = tun::create_as_async(&config).map_err(map_tun_error)?;
 
         let name = device
-            .get_ref()
-            .name()
-            .map_err(|error| TunError::Configuration(error.to_string()))?
-            .to_owned();
+            .tun_name()
+            .map_err(|error| TunError::Configuration(error.to_string()))?;
 
         configure_routes(&name, network)?;
 
@@ -62,7 +55,6 @@ impl TunHandle {
         Ok(Self {
             device: Arc::new(Mutex::new(device)),
             name,
-            local_ip,
             network,
         })
     }
@@ -71,20 +63,8 @@ impl TunHandle {
         self.device.clone()
     }
 
-    pub fn local_ip(&self) -> Ipv4Addr {
-        self.local_ip
-    }
-
     pub fn subnet_cidr(&self) -> String {
         format!("{}/24", self.network)
-    }
-
-    pub fn interface_up(&self) -> bool {
-        true
-    }
-
-    pub fn last_error(&self) -> Option<String> {
-        None
     }
 }
 

@@ -174,6 +174,7 @@ mod tests {
                 name: "local".to_owned(),
                 iroh_public_key: "key".to_owned(),
                 enabled_features: vec![],
+                virtual_ip: None,
                 last_seen: None,
                 online: true,
             },
@@ -182,6 +183,7 @@ mod tests {
                 name: "laptop".to_owned(),
                 iroh_public_key: "key2".to_owned(),
                 enabled_features: vec![],
+                virtual_ip: None,
                 last_seen: None,
                 online: true,
             },
@@ -199,6 +201,7 @@ mod tests {
             name: "local".to_owned(),
             iroh_public_key: "key".to_owned(),
             enabled_features: vec![],
+            virtual_ip: None,
             last_seen: None,
             online: true,
         }];

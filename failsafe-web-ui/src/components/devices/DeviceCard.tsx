@@ -46,6 +46,12 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
         </div>
       </div>
       <div className="mt-4 space-y-3 text-sm">
+        {device.virtual_ip &&
+        device.enabled_features.includes("virtual_lan") ? (
+          <p className="font-mono text-xs text-muted-foreground">
+            Virtual IP {device.virtual_ip}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-1">
           {device.enabled_features.length === 0 ? (
             <span className="text-muted-foreground">No features enabled</span>

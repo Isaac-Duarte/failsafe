@@ -10,6 +10,7 @@ Cross-device sync with an Apple-ecosystem feel. A central registration server ha
 | File send | Implemented |
 | Remote shell | Implemented |
 | TCP port forwarding | Implemented |
+| Virtual LAN (family gaming) | Implemented |
 | Notifications, remote desktop, shared drives | Planned |
 
 ## Architecture
@@ -27,7 +28,7 @@ Cross-device sync with an Apple-ecosystem feel. A central registration server ha
 └─────────────┘                              └──────────────────┘
 ```
 
-Each device runs a long-lived daemon (`failsafe run`) that registers features (clipboard, send, shell, port forward) and syncs policy from the server. CLI commands like `shell`, `send`, and `port` talk to the daemon over an authenticated local control socket.
+Each device runs a long-lived daemon (`failsafe run`) that registers features (clipboard, send, shell, port forward, virtual LAN) and syncs policy from the server. CLI commands like `shell`, `send`, `port`, and `lan` talk to the daemon over an authenticated local control socket.
 
 ## Quick start
 
@@ -56,6 +57,20 @@ failsafe send --device laptop ./document.pdf
 failsafe shell laptop
 failsafe port 8080:3000 --device laptop
 ```
+
+### Virtual LAN for gaming
+
+Enable **Virtual LAN** on each family device in the web UI, then restart the daemons. Each device gets a stable virtual IP on a private `100.64.x.x` subnet:
+
+```bash
+failsafe lan status
+# Virtual IP: 100.64.12.3
+# Subnet: 100.64.12.0/24
+# Family devices:
+#   dad-pc  100.64.12.2  (online)
+```
+
+Connect to the peer's virtual IP directly in your game (instead of a LAN address). Virtual LAN requires administrator/root privileges to create the TUN interface. On Windows, place [`wintun.dll`](https://www.wintun.net/) next to the `failsafe` binary.
 
 ### Self-hosting (optional)
 

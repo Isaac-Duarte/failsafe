@@ -99,6 +99,11 @@ pub async fn port(
         ControlResponse::Error { message } => {
             return Err(DaemonError::Config(message));
         }
+        ControlResponse::LanStatus { .. } => {
+            return Err(DaemonError::Config(
+                "unexpected virtual lan response".to_owned(),
+            ));
+        }
     }
 
     eprintln!(
