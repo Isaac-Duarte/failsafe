@@ -1,8 +1,8 @@
-import { Badge } from "./ui/badge"
-import { cn } from "../lib/utils"
+import { Badge } from "./ui/badge";
+import { cn } from "../lib/utils";
 
 interface StatusBadgeProps {
-  online: boolean
+  online: boolean;
 }
 
 export function StatusBadge({ online }: StatusBadgeProps) {
@@ -12,17 +12,19 @@ export function StatusBadge({ online }: StatusBadgeProps) {
       className={cn(
         "gap-1.5",
         online
-          ? "bg-success text-success-foreground hover:bg-success/90"
-          : "text-muted-foreground"
+          ? "bg-success/15 text-success ring-1 ring-success/25 hover:bg-success/20"
+          : "text-muted-foreground",
       )}
     >
       <span
         className={cn(
           "size-1.5 rounded-full",
-          online ? "bg-success-foreground" : "bg-muted-foreground"
+          online
+            ? "bg-success shadow-[0_0_12px_var(--success)]"
+            : "bg-muted-foreground",
         )}
       />
       {online ? "Online" : "Offline"}
     </Badge>
-  )
+  );
 }

@@ -182,9 +182,13 @@ export function AccountPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
+    <div className="mx-auto w-full max-w-2xl space-y-6">
+      <div className="rounded-2xl border border-border/65 bg-background/55 p-5 backdrop-blur">
+        <Badge variant={totpEnabled ? "default" : "outline"} className="mb-3">
+          {totpEnabled ? <Shield className="size-3" /> : null}
+          {totpEnabled ? "Protected" : "Security setup"}
+        </Badge>
+        <h1 className="text-3xl font-semibold tracking-tight">Account</h1>
         <p className="text-sm text-muted-foreground">
           Manage your profile and security settings.
         </p>
@@ -196,7 +200,9 @@ export function AccountPage() {
           <CardDescription>Your account email address.</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm font-medium">{email ?? "—"}</p>
+          <p className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-sm font-semibold">
+            {email ?? "-"}
+          </p>
         </CardContent>
       </Card>
 
@@ -263,7 +269,7 @@ export function AccountPage() {
               </CardDescription>
             </div>
             {totpEnabled ? (
-              <Badge variant="secondary">
+              <Badge variant="default">
                 <Shield className="size-3" />
                 Enabled
               </Badge>

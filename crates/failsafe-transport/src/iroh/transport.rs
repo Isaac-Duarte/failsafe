@@ -291,6 +291,12 @@ pub(crate) fn parse_endpoint_addr(address: &str) -> Result<EndpointAddr, Transpo
     Ok(EndpointAddr::new(public_key))
 }
 
+/// Load or create the on-disk iroh secret key and return the public key hex.
+pub fn iroh_public_key_hex(secret_key_path: &Path) -> Result<String, TransportError> {
+    let secret_key = load_or_create_secret_key(secret_key_path)?;
+    Ok(secret_key.public().to_string())
+}
+
 fn load_or_create_secret_key(path: &Path) -> Result<SecretKey, TransportError> {
     if path.exists() {
         let bytes =

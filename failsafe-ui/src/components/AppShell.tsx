@@ -1,13 +1,13 @@
-import type { ReactNode } from "react"
+import type { ReactNode } from "react";
 
-import { BrandHeader } from "./BrandHeader"
+import { BrandHeader } from "./BrandHeader";
 
 interface AppShellProps {
-  homeHref: string
-  subtitle?: string
-  actions?: ReactNode
-  centered?: boolean
-  children: ReactNode
+  homeHref: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  centered?: boolean;
+  children: ReactNode;
 }
 
 export function AppShell({
@@ -23,12 +23,12 @@ export function AppShell({
       <main
         className={
           centered
-            ? "flex flex-1 items-center justify-center px-6 pb-8"
-            : "mx-auto w-full max-w-5xl flex-1 px-6 py-8"
+            ? "flex flex-1 items-center justify-center px-4 py-8 sm:px-6"
+            : "mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6"
         }
       >
         {children}
       </main>
     </div>
-  )
+  );
 }
