@@ -37,7 +37,7 @@ export function AppLayout() {
   return (
     <AppShell
       homeHref={homeHref}
-      subtitle={showSubtitle ? "Sync across your devices" : undefined}
+      subtitle={showSubtitle ? "Personal device mesh" : undefined}
       centered={isAuthPage}
       actions={
         <>

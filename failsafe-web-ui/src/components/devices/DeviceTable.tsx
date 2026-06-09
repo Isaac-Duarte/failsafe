@@ -40,11 +40,11 @@ export function DeviceTable({ devices, onEdit, onRemove }: DeviceTableProps) {
       <TableBody>
         {devices.map((device) => (
           <TableRow key={device.device_id}>
-            <TableCell className="font-medium">{device.name}</TableCell>
+            <TableCell className="font-semibold">{device.name}</TableCell>
             <TableCell>
               <StatusBadge online={device.online} />
             </TableCell>
-            <TableCell className="hidden max-w-[12rem] truncate font-mono text-xs lg:table-cell">
+            <TableCell className="hidden max-w-[12rem] truncate font-mono text-xs text-muted-foreground lg:table-cell">
               {device.device_id}
             </TableCell>
             <TableCell>

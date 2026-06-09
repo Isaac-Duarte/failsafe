@@ -18,10 +18,12 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
   const { features } = useFeatures()
 
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm">
+    <div className="signal-panel rounded-xl border border-border/65 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <p className="truncate font-medium">{device.name}</p>
+          <p className="truncate text-base font-semibold tracking-tight">
+            {device.name}
+          </p>
           <StatusBadge online={device.online} />
         </div>
         <div className="flex shrink-0 gap-1">
@@ -43,7 +45,7 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
           </Button>
         </div>
       </div>
-      <div className="mt-3 space-y-2 text-sm">
+      <div className="mt-4 space-y-3 text-sm">
         <div className="flex flex-wrap gap-1">
           {device.enabled_features.length === 0 ? (
             <span className="text-muted-foreground">No features enabled</span>
@@ -55,7 +57,7 @@ export function DeviceCard({ device, onEdit, onRemove }: DeviceCardProps) {
             ))
           )}
         </div>
-        <p className="text-muted-foreground">
+        <p className="border-t border-border/60 pt-3 font-mono text-xs text-muted-foreground">
           Last seen {formatRelativeTime(device.last_seen)}
         </p>
       </div>

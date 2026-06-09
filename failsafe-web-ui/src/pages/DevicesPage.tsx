@@ -5,7 +5,7 @@ import { DeviceList } from "@/components/devices/DeviceList"
 import { EditDeviceDialog } from "@/components/devices/EditDeviceDialog"
 import { PairingCard } from "@/components/devices/PairingCard"
 import { RemoveDeviceDialog } from "@/components/devices/RemoveDeviceDialog"
-import { Alert, AlertDescription } from "@failsafe/ui"
+import { Alert, AlertDescription, Badge } from "@failsafe/ui"
 import { Button } from "@failsafe/ui"
 import {
   Card,
@@ -30,12 +30,21 @@ export function DevicesPage() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
-        <p className="text-sm text-muted-foreground">
-          {deviceCountLabel ??
-            "Manage paired devices and generate codes for new machines."}
-        </p>
+      <div className="flex flex-col gap-4 rounded-2xl border border-border/65 bg-background/55 p-5 backdrop-blur md:flex-row md:items-end md:justify-between">
+        <div>
+          <Badge variant="outline" className="mb-3">
+            Device fleet
+          </Badge>
+          <h1 className="text-3xl font-semibold tracking-tight">Devices</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {deviceCountLabel ??
+              "Manage paired devices and generate codes for new machines."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+          <span className="size-2 rounded-full bg-success" />
+          <span>control plane ready</span>
+        </div>
       </div>
 
       {error ? (
@@ -46,7 +55,7 @@ export function DevicesPage() {
 
       <PairingCard />
 
-      <Card className="shadow-lg ring-1 ring-border/50">
+      <Card>
         <CardHeader>
           <CardTitle>Registered devices</CardTitle>
           <CardDescription>
