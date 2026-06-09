@@ -99,10 +99,16 @@ function EditDeviceForm({ device, onClose, onSaved }: EditDeviceFormProps) {
             disabled={editSaving}
           />
         </div>
+        {device.virtual_ip ? (
+          <p className="font-mono text-xs text-muted-foreground">
+            Virtual IP: {device.virtual_ip}
+          </p>
+        ) : null}
         <div className="space-y-2">
           <Label>Features</Label>
           <p className="text-xs text-muted-foreground">
             Both devices need a feature enabled for it to work between them.
+            Virtual LAN requires administrator privileges on each machine.
           </p>
           <div className="space-y-3">
             {features.map((feature) => (

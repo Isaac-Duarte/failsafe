@@ -1842,8 +1842,10 @@ name = "failsafe-lan"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "dirs",
  "failsafe-core",
  "failsafe-transport",
+ "nix 0.29.0",
  "pnet_packet",
  "serde",
  "serde_json",
@@ -1852,6 +1854,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tun",
+ "uuid",
 ]
 
 [[package]]

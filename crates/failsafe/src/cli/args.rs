@@ -103,6 +103,14 @@ pub enum Command {
         #[command(subcommand)]
         command: LanCommand,
     },
+    /// Internal: open TUN and pass fd to daemon (runs elevated via sudo).
+    #[command(hide = true)]
+    TunHelper {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long)]
+        ip: String,
+    },
     /// Forward a local TCP port to a paired device.
     Port {
         /// Path to the config file.
@@ -128,6 +136,8 @@ pub enum LanCommand {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// One-time setup to avoid sudo prompts when using Virtual LAN (Linux only).
+    Setup,
 }
 
 #[derive(Subcommand)]

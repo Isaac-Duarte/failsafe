@@ -46,7 +46,9 @@ pub async fn execute() -> Result<(), DaemonError> {
             args::LanCommand::Status { config } => {
                 commands::lan_status(config, server_url).await
             }
+            args::LanCommand::Setup => commands::lan_setup(),
         },
+        Command::TunHelper { socket, ip } => commands::tun_helper(socket, ip),
         Command::Port {
             config,
             port,

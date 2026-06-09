@@ -3,7 +3,11 @@ mod feature;
 mod relay;
 mod routing;
 mod state;
+#[cfg(unix)]
+mod tun_fd;
+mod tun_helper;
 mod tun_iface;
+mod tun_setup;
 
 use std::sync::Arc;
 
@@ -16,6 +20,7 @@ pub use feature::{
 };
 pub use routing::{LanRoutingTable, SharedRoutingTable, shared_routing_table};
 pub use state::{LanRuntimeState, SharedLanState, shared_lan_state};
+pub use tun_helper::{run_tun_helper, TunHelperError};
 
 pub async fn start_lan_acceptor(iroh: Arc<IrohTransport>) -> mpsc::Receiver<LanSession> {
     let (tx, rx) = mpsc::channel(8);

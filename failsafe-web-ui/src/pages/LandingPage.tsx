@@ -50,6 +50,12 @@ const DEFAULT_SHIPPED_FEATURES: FeatureInfo[] = [
     description: "Accept forwarded TCP connections from other devices.",
   },
   {
+    id: "virtual_lan",
+    label: "Virtual LAN",
+    description:
+      "Play games with family over a private virtual network using stable IPs.",
+  },
+  {
     id: "file_send",
     label: "File Send",
     description: "Receive explicit file transfers from other devices.",

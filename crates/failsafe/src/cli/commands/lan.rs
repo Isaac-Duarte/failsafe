@@ -81,3 +81,56 @@ pub async fn status(
 
     Ok(())
 }
+
+pub fn setup() -> Result<(), DaemonError> {
+    #[cfg(target_os = "linux")]
+    {
+        let exe = std::env::current_exe().map_err(|error| {
+            DaemonError::Config(format!("failed to resolve failsafe binary path: {error}"))
+        })?;
+        let exe = exe.canonicalize().unwrap_or(exe);
+
+        eprintln!("This will grant the failsafe binary permission to manage virtual network interfaces without sudo.");
+        eprintln!("You will be prompted for your password once.");
+
+        let status = std::process::Command::new("sudo")
+            .arg("setcap")
+            .arg("cap_net_admin+ep")
+            .arg(&exe)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .map_err(|error| DaemonError::Config(format!("failed to run sudo setcap: {error}")))?;
+
+        if status.success() {
+            eprintln!("Virtual LAN capabilities installed for {}", exe.display());
+            eprintln!("Restart the daemon if it is already running.");
+        } else {
+            return Err(DaemonError::Config(
+                "setcap failed; virtual LAN will fall back to sudo when enabled".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        eprintln!("macOS does not support Linux-style capabilities (setcap).");
+        eprintln!("Virtual LAN will prompt for your password via sudo when it starts.");
+        eprintln!("Run `failsafe run` from Terminal.app so sudo can read your password.");
+        eprintln!("sudo caches credentials for a few minutes between prompts.");
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        Err(DaemonError::Config(
+            "virtual LAN setup is only documented for Linux and macOS".to_owned(),
+        ))
+    }
+}
+
+pub fn tun_helper(socket: std::path::PathBuf, ip: String) -> Result<(), DaemonError> {
+    failsafe_lan::run_tun_helper(&socket, &ip).map_err(|error| DaemonError::Config(error.to_string()))
+}

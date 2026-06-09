@@ -57,6 +57,13 @@ impl LanFeature {
     }
 }
 
+fn record_lan_failure(runtime: &SharedLanState, message: String) {
+    warn!("virtual LAN unavailable: {message}");
+    if let Ok(mut state) = runtime.try_write() {
+        *state = crate::state::LanRuntimeState::from_error(message);
+    }
+}
+
 #[async_trait]
 impl Feature for LanFeature {
     fn id(&self) -> FeatureId {
@@ -75,31 +82,22 @@ impl Feature for LanFeature {
 
         let Some(local_ip) = local_ip else {
             let message = "virtual IP not assigned yet; wait for server sync".to_owned();
-            *self.runtime.write().await = crate::state::LanRuntimeState::from_error(message.clone());
-            return Err(FeatureError::Failed(
-                LanFeatureSpec::feature_id(),
-                message,
-            ));
+            record_lan_failure(&self.runtime, message);
+            return Ok(());
         };
 
         let tun = match TunHandle::open(local_ip) {
             Ok(tun) => tun,
             Err(TunError::PermissionDenied(message)) => {
                 let hint = format!(
-                    "{message}. Run the daemon as administrator/root to use virtual LAN."
+                    "{message}. On Linux or macOS, run `failsafe run` in a terminal and approve sudo when prompted, or run `failsafe lan setup` once (Linux only)."
                 );
-                *self.runtime.write().await =
-                    crate::state::LanRuntimeState::from_error(hint.clone());
-                return Err(FeatureError::Failed(LanFeatureSpec::feature_id(), hint));
+                record_lan_failure(&self.runtime, hint);
+                return Ok(());
             }
             Err(error) => {
-                let message = error.to_string();
-                *self.runtime.write().await =
-                    crate::state::LanRuntimeState::from_error(message.clone());
-                return Err(FeatureError::Failed(
-                    LanFeatureSpec::feature_id(),
-                    message,
-                ));
+                record_lan_failure(&self.runtime, error.to_string());
+                return Ok(());
             }
         };
 
