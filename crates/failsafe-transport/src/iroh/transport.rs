@@ -22,9 +22,12 @@ use crate::iroh::config::{FAILSAFE_ALPN, IrohConfig};
 use crate::iroh::manager::{ConnectionPool, ManagerCommand, spawn_dial_manager};
 use crate::iroh::protocol::FailsafeProtocol;
 use crate::iroh::stream::{
-    PortAcceptor, PortSession, SharedPortAcceptor, SharedShellAcceptor, ShellAcceptor, ShellSession,
+    DesktopAcceptor, DesktopSession, InputAcceptor, InputSession, PortAcceptor, PortSession,
+    SharedDesktopAcceptor, SharedInputAcceptor, SharedPortAcceptor, SharedShellAcceptor,
+    ShellAcceptor, ShellSession,
 };
 use crate::peer_updater::PeerAddressUpdater;
+use crate::desktop;
 use crate::port;
 use crate::shell;
 use crate::transport::{Transport, TransportError};
@@ -40,6 +43,8 @@ pub struct IrohTransport {
     address_state: SharedAddressState,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 }
 
 impl IrohTransport {
@@ -72,6 +77,8 @@ impl IrohTransport {
 
         let shell_acceptor: SharedShellAcceptor = Arc::new(Mutex::new(None));
         let port_acceptor: SharedPortAcceptor = Arc::new(Mutex::new(None));
+        let desktop_acceptor: SharedDesktopAcceptor = Arc::new(Mutex::new(None));
+        let input_acceptor: SharedInputAcceptor = Arc::new(Mutex::new(None));
 
         let local_endpoint_id = endpoint.id();
         let failsafe_protocol = FailsafeProtocol::new(
@@ -82,6 +89,8 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            desktop_acceptor.clone(),
+            input_acceptor.clone(),
         );
         let blobs = BlobsProtocol::new(blob_transfer.store(), None);
         let router = Router::builder(endpoint.clone())
@@ -97,6 +106,8 @@ impl IrohTransport {
             config.device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            desktop_acceptor.clone(),
+            input_acceptor.clone(),
         );
 
         Ok(Self {
@@ -110,6 +121,8 @@ impl IrohTransport {
             address_state,
             shell_acceptor,
             port_acceptor,
+            desktop_acceptor,
+            input_acceptor,
         })
     }
 
@@ -147,6 +160,22 @@ impl IrohTransport {
 
     pub async fn clear_port_acceptor(&self) {
         *self.port_acceptor.lock().await = None;
+    }
+
+    pub async fn set_desktop_acceptor(&self, acceptor: DesktopAcceptor) {
+        *self.desktop_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_desktop_acceptor(&self) {
+        *self.desktop_acceptor.lock().await = None;
+    }
+
+    pub async fn set_input_acceptor(&self, acceptor: InputAcceptor) {
+        *self.input_acceptor.lock().await = Some(acceptor);
+    }
+
+    pub async fn clear_input_acceptor(&self) {
+        *self.input_acceptor.lock().await = None;
     }
 
     pub async fn open_shell_stream(
@@ -206,6 +235,61 @@ impl IrohTransport {
             from: peer,
             remote_port,
             protocol,
+            send,
+            recv,
+        })
+    }
+
+    pub async fn open_desktop_stream(
+        &self,
+        peer: DeviceId,
+        view_only: bool,
+        display_index: u32,
+    ) -> Result<DesktopSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = desktop::build_desktop_init(view_only, display_index);
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(DesktopSession {
+            from: peer,
+            view_only,
+            display_index,
+            send,
+            recv,
+        })
+    }
+
+    pub async fn open_input_stream(&self, peer: DeviceId) -> Result<InputSession, TransportError> {
+        let connection = self
+            .pool
+            .get(peer)
+            .await
+            .ok_or(TransportError::PeerNotFound(peer))?;
+
+        let (mut send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        let init = desktop::build_input_init();
+        send.write_all(&init)
+            .await
+            .map_err(|error| TransportError::Codec(error.to_string()))?;
+
+        Ok(InputSession {
+            from: peer,
             send,
             recv,
         })

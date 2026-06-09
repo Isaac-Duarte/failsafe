@@ -34,6 +34,12 @@ pub async fn execute() -> Result<(), DaemonError> {
         Command::Status { config } => commands::status(config, server_url),
         Command::Devices { command } => commands::devices(command, server_url).await,
         Command::Shell { config, device } => commands::shell(config, server_url, device).await,
+        Command::Desktop {
+            config,
+            device,
+            view_only,
+            display,
+        } => commands::desktop(config, server_url, device, view_only, display).await,
         Command::Send {
             config,
             paths,

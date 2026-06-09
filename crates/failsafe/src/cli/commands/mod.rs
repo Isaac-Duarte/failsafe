@@ -1,4 +1,5 @@
 mod auth;
+mod desktop;
 mod devices;
 mod pair;
 mod port;
@@ -8,6 +9,7 @@ mod shell;
 mod status;
 
 pub use auth::authenticate;
+pub use desktop::desktop;
 pub use devices::devices;
 pub use pair::pair;
 pub use port::port;

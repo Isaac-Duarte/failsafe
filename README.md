@@ -10,7 +10,8 @@ Cross-device sync with an Apple-ecosystem feel. A central registration server ha
 | File send | Implemented |
 | Remote shell | Implemented |
 | TCP port forwarding | Implemented |
-| Notifications, remote desktop, shared drives | Planned |
+| Remote desktop (screen share + input) | Implemented (Linux/macOS; early) |
+| Notifications, shared drives | Planned |
 
 ## Architecture
 
@@ -55,7 +56,12 @@ failsafe run
 failsafe send --device laptop ./document.pdf
 failsafe shell laptop
 failsafe port 8080:3000 --device laptop
+failsafe desktop laptop
+failsafe desktop laptop --view-only
 ```
+
+Enable the `desktop` feature on both devices in the web UI (or `failsafe devices features`) before connecting.
+Screen sharing uses JPEG over Iroh; see `crates/failsafe-desktop/docs/` for iroh-live migration notes.
 
 ### Self-hosting (optional)
 

@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use failsafe_clipboard::feature::{ClipboardFeature, ClipboardFeatureSpec};
+use failsafe_desktop::{DesktopFeature, DesktopFeatureControl, DesktopFeatureSpec};
 use failsafe_clipboard::limits::ClipboardLimits;
 use failsafe_core::api::FeatureInfo;
 use failsafe_core::feature::{FeatureControl, FeatureId, FeatureSpec, UnknownFeatureId};
@@ -31,6 +32,7 @@ const CATALOG_BUILDERS: &[SpecFn] = &[
     || spec_info::<ShellFeatureSpec>(),
     || spec_info::<PortFeatureSpec>(),
     || spec_info::<SendFeatureSpec>(),
+    || spec_info::<DesktopFeatureSpec>(),
 ];
 
 pub fn catalog() -> Vec<FeatureInfo> {
@@ -43,6 +45,7 @@ pub fn all_ids() -> Vec<FeatureId> {
         ShellFeatureSpec::feature_id(),
         PortFeatureSpec::feature_id(),
         SendFeatureSpec::feature_id(),
+        DesktopFeatureSpec::feature_id(),
     ]
 }
 
@@ -85,7 +88,8 @@ pub fn build_feature_registry(ctx: &DaemonBuildContext) -> Result<FeatureRegistr
 
     if let Some(iroh) = ctx.iroh.clone() {
         registry.register(Box::new(ShellFeature::new(iroh.clone())))?;
-        registry.register(Box::new(PortFeature::new(iroh)))?;
+        registry.register(Box::new(PortFeature::new(iroh.clone())))?;
+        registry.register(Box::new(DesktopFeature::new(iroh)))?;
     }
 
     Ok(registry)
@@ -115,5 +119,6 @@ pub fn build_control_handlers(
             ctx.send_limits,
             ctx.coordinator.clone(),
         )),
+        Box::new(DesktopFeatureControl::new(ctx.iroh.clone())),
     ]
 }

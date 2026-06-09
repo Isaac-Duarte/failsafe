@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, warn};
 
 use crate::codec;
+use crate::desktop;
 use crate::port;
 use crate::shell;
 use crate::transport::TransportError;
@@ -20,6 +21,12 @@ pub type SharedShellAcceptor = Arc<Mutex<Option<ShellAcceptor>>>;
 
 pub type PortAcceptor = mpsc::Sender<PortSession>;
 pub type SharedPortAcceptor = Arc<Mutex<Option<PortAcceptor>>>;
+
+pub type DesktopAcceptor = mpsc::Sender<DesktopSession>;
+pub type SharedDesktopAcceptor = Arc<Mutex<Option<DesktopAcceptor>>>;
+
+pub type InputAcceptor = mpsc::Sender<InputSession>;
+pub type SharedInputAcceptor = Arc<Mutex<Option<InputAcceptor>>>;
 
 pub struct ShellSession {
     pub from: DeviceId,
@@ -33,6 +40,20 @@ pub struct PortSession {
     pub from: DeviceId,
     pub remote_port: u16,
     pub protocol: PortProtocol,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
+
+pub struct DesktopSession {
+    pub from: DeviceId,
+    pub view_only: bool,
+    pub display_index: u32,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
+
+pub struct InputSession {
+    pub from: DeviceId,
     pub send: SendStream,
     pub recv: RecvStream,
 }
@@ -63,6 +84,8 @@ pub async fn handle_incoming_bi_stream(
     inbox: mpsc::Sender<FeatureMessage>,
     port_acceptor: SharedPortAcceptor,
     shell_acceptor: SharedShellAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) {
     let mut header = [0u8; 4];
     if let Err(error) = read_exact(&mut recv, &mut header).await {
@@ -77,6 +100,16 @@ pub async fn handle_incoming_bi_stream(
 
     if shell::is_shell_handshake(&header) {
         try_accept_shell_stream(header, recv, send, shell_acceptor, device).await;
+        return;
+    }
+
+    if desktop::is_desktop_handshake(&header) {
+        try_accept_desktop_stream(header, recv, send, desktop_acceptor, device).await;
+        return;
+    }
+
+    if desktop::is_input_handshake(&header) {
+        try_accept_input_stream(send, recv, input_acceptor, device).await;
         return;
     }
 
@@ -116,6 +149,64 @@ async fn try_accept_port_stream(
         session,
         "rejected port stream: port acceptor not registered",
         "port acceptor closed",
+    )
+    .await;
+}
+
+async fn try_accept_desktop_stream(
+    header: [u8; 4],
+    mut recv: RecvStream,
+    send: SendStream,
+    desktop_acceptor: SharedDesktopAcceptor,
+    device: DeviceId,
+) {
+    let mut tail = [0u8; 5];
+    if let Err(error) = read_exact(&mut recv, &mut tail).await {
+        warn!(%device, "desktop stream missing init tail: {error}");
+        return;
+    }
+    let mut init = [0u8; desktop::DESKTOP_INIT_LEN];
+    init[..4].copy_from_slice(&header);
+    init[4..].copy_from_slice(&tail);
+    let Some((view_only, display_index)) = desktop::parse_desktop_init(&init) else {
+        warn!(%device, "desktop stream has invalid init");
+        return;
+    };
+
+    let session = DesktopSession {
+        from: device,
+        view_only,
+        display_index,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        desktop_acceptor,
+        device,
+        session,
+        "rejected desktop stream: desktop acceptor not registered",
+        "desktop acceptor closed",
+    )
+    .await;
+}
+
+async fn try_accept_input_stream(
+    send: SendStream,
+    recv: RecvStream,
+    input_acceptor: SharedInputAcceptor,
+    device: DeviceId,
+) {
+    let session = InputSession {
+        from: device,
+        send,
+        recv,
+    };
+    forward_to_acceptor(
+        input_acceptor,
+        device,
+        session,
+        "rejected input stream: input acceptor not registered",
+        "input acceptor closed",
     )
     .await;
 }

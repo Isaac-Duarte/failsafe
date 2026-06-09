@@ -10,7 +10,10 @@ use tracing::{debug, warn};
 
 use crate::iroh::SharedAddressState;
 use crate::iroh::manager::{ConnectionPool, register_outbound_connection};
-use crate::iroh::stream::{SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream};
+use crate::iroh::stream::{
+    SharedDesktopAcceptor, SharedInputAcceptor, SharedPortAcceptor, SharedShellAcceptor,
+    handle_incoming_bi_stream,
+};
 use crate::transport::TransportError;
 
 #[derive(Debug, Clone)]
@@ -22,6 +25,8 @@ pub struct FailsafeProtocol {
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 }
 
 impl FailsafeProtocol {
@@ -33,6 +38,8 @@ impl FailsafeProtocol {
         local_device_id: DeviceId,
         shell_acceptor: SharedShellAcceptor,
         port_acceptor: SharedPortAcceptor,
+        desktop_acceptor: SharedDesktopAcceptor,
+        input_acceptor: SharedInputAcceptor,
     ) -> Self {
         Self {
             pool,
@@ -42,6 +49,8 @@ impl FailsafeProtocol {
             local_device_id,
             shell_acceptor,
             port_acceptor,
+            desktop_acceptor,
+            input_acceptor,
         }
     }
 }
@@ -71,6 +80,8 @@ impl ProtocolHandler for FailsafeProtocol {
                     let inbox = self.inbox.clone();
                     let shell_acceptor = self.shell_acceptor.clone();
                     let port_acceptor = self.port_acceptor.clone();
+                    let desktop_acceptor = self.desktop_acceptor.clone();
+                    let input_acceptor = self.input_acceptor.clone();
                     let local_device_id = self.local_device_id;
                     tokio::spawn(async move {
                         handle_incoming_bi_stream(
@@ -81,6 +92,8 @@ impl ProtocolHandler for FailsafeProtocol {
                             inbox,
                             port_acceptor,
                             shell_acceptor,
+                            desktop_acceptor,
+                            input_acceptor,
                         )
                         .await;
                     });

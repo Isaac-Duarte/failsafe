@@ -14,6 +14,7 @@ dirs.workspace = true
 dotenvy.workspace = true
 failsafe-clipboard.workspace = true
 failsafe-core.workspace = true
+failsafe-desktop.workspace = true
 failsafe-feature-registry.workspace = true
 failsafe-port.workspace = true
 failsafe-send.workspace = true

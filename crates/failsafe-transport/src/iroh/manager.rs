@@ -12,7 +12,10 @@ use tracing::{debug, warn};
 use crate::iroh::address::SharedAddressState;
 use crate::iroh::config::FAILSAFE_ALPN;
 use crate::iroh::protocol::resolve_device;
-use crate::iroh::stream::{SharedPortAcceptor, SharedShellAcceptor, handle_incoming_bi_stream};
+use crate::iroh::stream::{
+    SharedDesktopAcceptor, SharedInputAcceptor, SharedPortAcceptor, SharedShellAcceptor,
+    handle_incoming_bi_stream,
+};
 use crate::transport::TransportError;
 
 #[derive(Debug)]
@@ -63,6 +66,8 @@ pub fn spawn_dial_manager(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) -> ManagerCommand {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -74,6 +79,8 @@ pub fn spawn_dial_manager(
             local_device_id,
             shell_acceptor,
             port_acceptor,
+            desktop_acceptor,
+            input_acceptor,
             shutdown_rx,
         )
         .await
@@ -96,6 +103,8 @@ async fn run_dial_manager(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), TransportError> {
     let endpoint = Arc::new(endpoint);
@@ -117,6 +126,8 @@ async fn run_dial_manager(
                     local_device_id,
                     shell_acceptor.clone(),
                     port_acceptor.clone(),
+                    desktop_acceptor.clone(),
+                    input_acceptor.clone(),
                 ).await;
             }
         }
@@ -133,6 +144,8 @@ async fn dial_peers(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) {
     let peers_to_dial: Vec<(DeviceId, String)> = match address_state.read() {
         Ok(state) => state
@@ -157,6 +170,8 @@ async fn dial_peers(
             local_device_id,
             shell_acceptor.clone(),
             port_acceptor.clone(),
+            desktop_acceptor.clone(),
+            input_acceptor.clone(),
         )
         .await;
     }
@@ -172,6 +187,8 @@ async fn try_dial_one(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) {
     if pool.get(device).await.is_some() {
         return;
@@ -207,6 +224,8 @@ async fn try_dial_one(
         local_device_id,
         shell_acceptor,
         port_acceptor,
+        desktop_acceptor,
+        input_acceptor,
     )
     .await
     {
@@ -232,6 +251,8 @@ async fn register_dialed_connection(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) -> Result<(), TransportError> {
     let device = register_outbound_connection(connection, address_state)?;
     pool.insert(device, connection.clone()).await;
@@ -243,6 +264,8 @@ async fn register_dialed_connection(
         local_device_id,
         shell_acceptor,
         port_acceptor,
+        desktop_acceptor,
+        input_acceptor,
     );
     Ok(())
 }
@@ -255,6 +278,8 @@ fn spawn_stream_handler(
     local_device_id: DeviceId,
     shell_acceptor: SharedShellAcceptor,
     port_acceptor: SharedPortAcceptor,
+    desktop_acceptor: SharedDesktopAcceptor,
+    input_acceptor: SharedInputAcceptor,
 ) {
     tokio::spawn(async move {
         loop {
@@ -263,6 +288,8 @@ fn spawn_stream_handler(
                     let inbox = inbox.clone();
                     let shell_acceptor = shell_acceptor.clone();
                     let port_acceptor = port_acceptor.clone();
+                    let desktop_acceptor = desktop_acceptor.clone();
+                    let input_acceptor = input_acceptor.clone();
                     tokio::spawn(async move {
                         handle_incoming_bi_stream(
                             send,
@@ -272,6 +299,8 @@ fn spawn_stream_handler(
                             inbox,
                             port_acceptor,
                             shell_acceptor,
+                            desktop_acceptor,
+                            input_acceptor,
                         )
                         .await;
                     });

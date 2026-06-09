@@ -98,6 +98,20 @@ pub enum Command {
         #[arg(long)]
         cancel_all: bool,
     },
+    /// View or control a paired device's screen.
+    Desktop {
+        /// Path to the config file.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Device name or ID. Omit for interactive selection.
+        device: Option<String>,
+        /// View only; do not send mouse or keyboard input.
+        #[arg(long)]
+        view_only: bool,
+        /// Remote display index (zero-based).
+        #[arg(long, default_value_t = 0)]
+        display: u32,
+    },
     /// Forward a local TCP port to a paired device.
     Port {
         /// Path to the config file.
