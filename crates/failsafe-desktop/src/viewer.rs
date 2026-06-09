@@ -48,63 +48,39 @@ async fn run_desktop_viewer_loop(
 
     let mut remote_width = 0u32;
     let mut remote_height = 0u32;
-    let mut buffer = Vec::new();
     let mut last_mouse: Option<(i32, i32)> = None;
     let mut buttons_down = [false; 3];
     let mut key_state = HashMap::new();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         while let Ok(payload) = frame_rx.try_recv() {
-            match parse_frame_kind(&payload) {
-                FrameKind::Config { width, height } => {
-                    remote_width = width;
-                    remote_height = height;
+            if let Some((width, height, pixels)) = decode_frame_payload(&payload, &mut remote_width, &mut remote_height) {
+                if window.get_size().0 != width || window.get_size().1 != height {
+                    window = Window::new(&title, width, height, WindowOptions::default())
+                        .map_err(|error| TransportError::Codec(error.to_string()))?;
                 }
-                FrameKind::Jpeg => {
-                    if payload.len() >= 5 {
-                        let jpeg_len =
-                            u32::from_be_bytes(payload[1..5].try_into().expect("jpeg len")) as usize;
-                        if payload.len() >= 5 + jpeg_len {
-                            if let Ok((width, height, pixels)) =
-                                decode_jpeg_to_buffer(&payload[5..5 + jpeg_len])
-                            {
-                                buffer = pixels;
-                                if window.get_size().0 != width as usize
-                                    || window.get_size().1 != height as usize
-                                {
-                                    window = Window::new(
-                                        &title,
-                                        width as usize,
-                                        height as usize,
-                                        WindowOptions::default(),
-                                    )
-                                    .map_err(|error| TransportError::Codec(error.to_string()))?;
-                                }
-                                let _ = window.update_with_buffer(
-                                    &buffer,
-                                    width as usize,
-                                    height as usize,
-                                );
-                            }
-                        }
-                    }
-                }
-                FrameKind::Unknown(kind) => warn!("unknown frame kind {kind}"),
+                let _ = window.update_with_buffer(&pixels, width, height);
             }
         }
 
-        if remote_width > 0 && remote_height > 0 {
-            if let Some(send) = input_send.as_mut() {
-                relay_input(
-                    send,
-                    &window,
-                    remote_width,
-                    remote_height,
-                    &mut last_mouse,
-                    &mut buttons_down,
-                    &mut key_state,
-                )
-                .await?;
+        let input_events = if remote_width > 0 && remote_height > 0 {
+            collect_input_events(
+                &window,
+                remote_width,
+                remote_height,
+                &mut last_mouse,
+                &mut buttons_down,
+                &mut key_state,
+            )
+        } else {
+            Vec::new()
+        };
+
+        if let Some(send) = input_send.as_mut() {
+            for event in input_events {
+                send.write_all(&event)
+                    .await
+                    .map_err(|error| TransportError::Codec(error.to_string()))?;
             }
         }
 
@@ -118,6 +94,35 @@ async fn run_desktop_viewer_loop(
         let _ = send.finish();
     }
     Ok(())
+}
+
+fn decode_frame_payload(
+    payload: &[u8],
+    remote_width: &mut u32,
+    remote_height: &mut u32,
+) -> Option<(usize, usize, Vec<u32>)> {
+    match parse_frame_kind(payload) {
+        FrameKind::Config { width, height } => {
+            *remote_width = width;
+            *remote_height = height;
+            None
+        }
+        FrameKind::Jpeg => {
+            if payload.len() < 5 {
+                return None;
+            }
+            let jpeg_len = u32::from_be_bytes(payload[1..5].try_into().ok()?) as usize;
+            if payload.len() < 5 + jpeg_len {
+                return None;
+            }
+            let (width, height, pixels) = decode_jpeg_to_buffer(&payload[5..5 + jpeg_len]).ok()?;
+            Some((width as usize, height as usize, pixels))
+        }
+        FrameKind::Unknown(kind) => {
+            warn!("unknown frame kind {kind}");
+            None
+        }
+    }
 }
 
 async fn read_length_prefixed(recv: &mut RecvStream) -> Result<Option<Vec<u8>>, TransportError> {
@@ -162,18 +167,18 @@ fn decode_jpeg_to_buffer(jpeg: &[u8]) -> Result<(u32, u32, Vec<u32>), String> {
     Ok((width, height, buffer))
 }
 
-async fn relay_input(
-    send: &mut SendStream,
+fn collect_input_events(
     window: &Window,
     remote_width: u32,
     remote_height: u32,
     last_mouse: &mut Option<(i32, i32)>,
     buttons_down: &mut [bool; 3],
     key_state: &mut HashMap<u32, bool>,
-) -> Result<(), TransportError> {
+) -> Vec<Vec<u8>> {
+    let mut events = Vec::new();
     let (win_w, win_h) = window.get_size();
     if win_w == 0 || win_h == 0 {
-        return Ok(());
+        return events;
     }
 
     if let Some((x, y)) = window.get_mouse_pos(minifb::MouseMode::Clamp) {
@@ -183,7 +188,7 @@ async fn relay_input(
             (y as u32 * remote_height / win_h as u32).min(remote_height.saturating_sub(1)) as i32;
         if last_mouse != &Some((remote_x, remote_y)) {
             *last_mouse = Some((remote_x, remote_y));
-            write_input(send, &encode_mouse_move(remote_x, remote_y)).await?;
+            events.push(encode_mouse_move(remote_x, remote_y).to_vec());
         }
     }
 
@@ -194,7 +199,7 @@ async fn relay_input(
         let pressed = window.get_mouse_down(button);
         if pressed != buttons_down[index] {
             buttons_down[index] = pressed;
-            write_input(send, &encode_mouse_button(index as u8, pressed)).await?;
+            events.push(encode_mouse_button(index as u8, pressed).to_vec());
         }
     }
 
@@ -206,18 +211,11 @@ async fn relay_input(
         let was_pressed = key_state.get(&code).copied().unwrap_or(false);
         if pressed != was_pressed {
             key_state.insert(code, pressed);
-            write_input(send, &encode_key(code, pressed)).await?;
+            events.push(encode_key(code, pressed).to_vec());
         }
     }
 
-    Ok(())
-}
-
-async fn write_input(send: &mut SendStream, message: &[u8]) -> Result<(), TransportError> {
-    send.write_all(message)
-        .await
-        .map_err(|error| TransportError::Codec(error.to_string()))?;
-    Ok(())
+    events
 }
 
 fn tracked_keys() -> &'static [Key] {

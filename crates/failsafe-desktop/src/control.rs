@@ -125,8 +125,21 @@ impl FeatureControl for DesktopFeatureControl {
             "desktop session ready, opening viewer"
         );
 
-        if let Err(error) = run_outgoing_desktop(&self.iroh, session).await {
-            warn!(target = %request.target, "desktop session ended with error: {error}");
+        let iroh = self.iroh.clone();
+        let target = request.target;
+        let viewer = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| ControlError::Config(error.to_string()))?
+                .block_on(run_outgoing_desktop(&iroh, session))
+                .map_err(|error| ControlError::Config(error.to_string()))
+        });
+
+        match viewer.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => warn!(%target, "desktop session ended with error: {error}"),
+            Err(error) => warn!(%target, "desktop viewer thread failed: {error}"),
         }
 
         Ok(())

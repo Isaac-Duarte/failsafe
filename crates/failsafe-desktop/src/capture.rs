@@ -42,7 +42,7 @@ pub fn capture_display_jpeg(display_index: u32, quality: u8) -> Result<(Vec<u8>,
 
     let rgba = image.into_raw();
     let mut jpeg = Vec::new();
-    let mut encoder = JpegEncoder::new_with_quality(&mut jpeg, quality);
+    let encoder = JpegEncoder::new_with_quality(&mut jpeg, quality);
     encoder
         .write_image(&rgba, width, height, ExtendedColorType::Rgba8)
         .map_err(|error| CaptureError::Encode(error.to_string()))?;
