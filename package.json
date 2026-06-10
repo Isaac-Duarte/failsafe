@@ -2,7 +2,8 @@
   "name": "failsafe",
   "private": true,
   "scripts": {
-    "codegen": "cargo run -p failsafe-bindings"
+    "codegen": "cargo run -p failsafe-bindings",
+    "build:release": "scripts/build-release.sh"
   },
   "workspaces": [
     "failsafe-ui",

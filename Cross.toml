@@ -1,0 +1,11 @@
+[build.env]
+passthrough = ["FAILSAFE_SKIP_WEB_BUILD"]
+
+# macOS images are not distributed by cross due to Apple licensing.
+# Build a local image with cross-toolchains, then uncomment:
+#
+# [target.aarch64-apple-darwin]
+# image = "aarch64-apple-darwin-cross:local"
+#
+# [target.x86_64-apple-darwin]
+# image = "x86_64-apple-darwin-cross:local"
